@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: smart_taxi_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: smart_taxi_ads
+
+  flask_app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: smart_taxi_api
+    restart: always
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    depends_on:
+      - mongodb
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - DATABASE_NAME=smart_taxi_ads
+    volumes:
+      - ../src:/app/src
+    command: python src/app.py
+
+volumes:
+  mongodb_data:
