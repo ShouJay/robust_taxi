@@ -11,7 +11,7 @@ DATABASE_NAME = os.getenv('DATABASE_NAME', 'smart_taxi_ads')
 
 # Flask 配置
 FLASK_HOST = os.getenv('FLASK_HOST', '0.0.0.0')
-FLASK_PORT = int(os.getenv('FLASK_PORT', 5000))
+FLASK_PORT = int(os.getenv('FLASK_PORT', 8080))
 FLASK_DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
 
 # 業務配置

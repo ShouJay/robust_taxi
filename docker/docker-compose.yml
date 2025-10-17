@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # MongoDB 數據庫
   mongodb:
     image: mongo:7.0
     container_name: smart_taxi_mongodb
@@ -11,24 +12,33 @@ services:
       - mongodb_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: smart_taxi_ads
+    networks:
+      - smart_taxi_network
 
-  flask_app:
+  # 整合版智能計程車廣告服務
+  smart_taxi_service:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
-    container_name: smart_taxi_api
+      dockerfile: ./docker/Dockerfile
+    container_name: smart_taxi_service
     restart: always
     ports:
-      - "5000:5000"
-      - "5001:5001"
+      - "8080:8080"
     depends_on:
       - mongodb
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/
       - DATABASE_NAME=smart_taxi_ads
-    volumes:
-      - ../src:/app/src
-    command: python src/app.py
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=8080
+      - FLASK_DEBUG=False
+    command: python run_app.py
+    networks:
+      - smart_taxi_network
 
 volumes:
   mongodb_data:
+
+networks:
+  smart_taxi_network:
+    driver: bridge
