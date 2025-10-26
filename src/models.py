@@ -3,6 +3,8 @@
 定義所有 MongoDB 集合的數據結構
 """
 
+from datetime import datetime
+
 class DeviceModel:
     """設備數據模型"""
     
@@ -32,13 +34,25 @@ class AdvertisementModel:
     """廣告數據模型"""
     
     @staticmethod
-    def create(ad_id, name, video_filename):
+    def create(ad_id, name, video_filename, video_path=None, file_size=None, duration=None, upload_date=None):
         """創建廣告文檔"""
-        return {
+        ad_doc = {
             "_id": ad_id,
             "name": name,
-            "video_filename": video_filename
+            "video_filename": video_filename,
+            "status": "active",
+            "created_at": upload_date or datetime.now().isoformat()
         }
+        
+        # 添加影片相關信息
+        if video_path:
+            ad_doc["video_path"] = video_path
+        if file_size:
+            ad_doc["file_size"] = file_size
+        if duration:
+            ad_doc["duration"] = duration
+            
+        return ad_doc
 
 
 class CampaignModel:
@@ -64,6 +78,7 @@ class CampaignModel:
             "advertisement_id": advertisement_id,
             "priority": priority,
             "target_groups": target_groups,
+            "status": "active",  # 默認為活躍狀態
             "geo_fence": {
                 "type": "Polygon",
                 "coordinates": geo_fence_coordinates

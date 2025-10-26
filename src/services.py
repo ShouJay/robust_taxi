@@ -32,7 +32,9 @@ class AdDecisionService:
             latitude: 緯度
         
         Returns:
-            str: 應播放的視頻文件名
+            dict: 包含 video_filename 和 advertisement_id 的字典
+            {"video_filename": "...", "advertisement_id": "..."}
+            或 None（無匹配廣告）
         """
         try:
             # 1. 查找設備信息
@@ -64,7 +66,8 @@ class AdDecisionService:
                     "$geoIntersects": {
                         "$geometry": point
                     }
-                }
+                },
+                "status": "active"  # 只查詢活躍的活動
             })
             
             # 5. 過濾符合目標分組的活動
@@ -83,7 +86,11 @@ class AdDecisionService:
             # 6. 選擇優先級最高的活動
             if not eligible_campaigns:
                 logger.info("沒有找到符合條件的活動，使用預設視頻")
-                return DEFAULT_VIDEO
+                return {
+                    "video_filename": DEFAULT_VIDEO,
+                    "advertisement_id": None,
+                    "advertisement_name": "預設廣告"
+                }
             
             selected_campaign = max(
                 eligible_campaigns,
@@ -96,20 +103,40 @@ class AdDecisionService:
             
             if not advertisement_id:
                 logger.warning("活動中沒有 advertisement_id，使用預設視頻")
-                return DEFAULT_VIDEO
+                return {
+                    "video_filename": DEFAULT_VIDEO,
+                    "advertisement_id": None,
+                    "advertisement_name": "預設廣告"
+                }
             
-            advertisement = self.db.advertisements.find_one({"_id": advertisement_id})
+            advertisement = self.db.advertisements.find_one({
+                "_id": advertisement_id,
+                "status": "active"  # 只查詢活躍的廣告
+            })
             
             if not advertisement:
                 logger.warning(f"找不到廣告: {advertisement_id}，使用預設視頻")
-                return DEFAULT_VIDEO
+                return {
+                    "video_filename": DEFAULT_VIDEO,
+                    "advertisement_id": None,
+                    "advertisement_name": "預設廣告"
+                }
             
             video_filename = advertisement.get('video_filename', DEFAULT_VIDEO)
+            advertisement_name = advertisement.get('name', '未命名廣告')
             logger.info(f"決定播放廣告視頻: {video_filename}")
             
-            return video_filename
+            return {
+                "video_filename": video_filename,
+                "advertisement_id": advertisement_id,
+                "advertisement_name": advertisement_name
+            }
             
         except Exception as e:
             logger.error(f"廣告決策過程出錯: {e}", exc_info=True)
-            return DEFAULT_VIDEO
+            return {
+                "video_filename": DEFAULT_VIDEO,
+                "advertisement_id": None,
+                "advertisement_name": "預設廣告"
+            }
 

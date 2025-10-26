@@ -15,12 +15,15 @@ COPY src ./src
 COPY tests ./tests
 COPY run_app.py .
 
+# 複製 HTML 檔案
+COPY *.html ./
+
 # 暴露應用程序運行端口
 EXPOSE 8080
 
 # 設置健康檢查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD python -c "import requests; requests.get('http://localhost:8080/health', timeout=5)"
+  CMD curl -f http://localhost:8080/health || exit 1
 
 # 運行應用程序
 CMD ["python", "run_app.py"]

@@ -9,11 +9,12 @@
 4. 支持管理員主動插播
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_socketio import SocketIO, emit, disconnect
 from flask_cors import CORS
 import logging
 from datetime import datetime
+import os
 
 # 導入配置和模組
 from config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG, LOG_LEVEL, MONGODB_URI, DATABASE_NAME
@@ -29,6 +30,7 @@ from admin_api import init_admin_api
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10GB 限制
 CORS(app)
 
 # 初始化 SocketIO
@@ -229,13 +231,15 @@ def handle_location_update(data):
         logger.info(f"收到位置更新: {device_id} -> ({longitude}, {latitude})")
         
         # 執行廣告決策
-        video_filename = ad_service.decide_ad(device_id, longitude, latitude)
+        ad_info = ad_service.decide_ad(device_id, longitude, latitude)
         
-        if video_filename:
+        if ad_info and ad_info.get('video_filename'):
             # 構建推送載荷
             payload = {
                 "command": "PLAY_VIDEO",
-                "video_filename": video_filename,
+                "video_filename": ad_info['video_filename'],
+                "advertisement_id": ad_info.get('advertisement_id'),
+                "advertisement_name": ad_info.get('advertisement_name', ''),
                 "trigger": "location_based",  # 標記觸發原因
                 "device_id": device_id,
                 "location": {
@@ -250,12 +254,12 @@ def handle_location_update(data):
             connection_stats['messages_sent'] += 1
             connection_stats['location_updates'] += 1
             
-            logger.info(f"已推送廣告到 {device_id}: {video_filename}")
+            logger.info(f"已推送廣告到 {device_id}: {ad_info['video_filename']}")
             
             # 發送確認消息
             emit('location_ack', {
                 'message': '位置更新已處理，廣告已推送',
-                'video_filename': video_filename,
+                'video_filename': ad_info['video_filename'],
                 'timestamp': datetime.now().isoformat()
             })
         else:
@@ -300,36 +304,360 @@ def handle_heartbeat(data):
         logger.debug(f"收到心跳: {device_id}")
 
 
+@socketio.on('download_status')
+def handle_download_status(data):
+    """
+    處理設備下載狀態回報
+    
+    設備發送下載進度和狀態信息
+    """
+    sid = request.sid
+    
+    try:
+        device_id = data.get('device_id')
+        advertisement_id = data.get('advertisement_id')
+        status = data.get('status')  # downloading, completed, failed, paused
+        progress = data.get('progress', 0)  # 0-100
+        downloaded_chunks = data.get('downloaded_chunks', [])
+        total_chunks = data.get('total_chunks', 0)
+        error_message = data.get('error_message')
+        
+        # 驗證數據
+        if not device_id or not advertisement_id or not status:
+            emit('download_status_error', {
+                'error': '缺少必要欄位: device_id, advertisement_id, status'
+            })
+            return
+        
+        # 檢查設備是否已註冊
+        if sid not in active_connections:
+            emit('download_status_error', {
+                'error': '設備未註冊，請先發送 register 事件'
+            })
+            return
+        
+        logger.info(f"收到下載狀態: {device_id} -> {advertisement_id}, 狀態: {status}, 進度: {progress}%")
+        
+        # 發送確認消息
+        emit('download_status_ack', {
+            'message': '下載狀態已收到',
+            'advertisement_id': advertisement_id,
+            'status': status,
+            'progress': progress,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        if status == 'completed':
+            logger.info(f"設備 {device_id} 完成下載廣告 {advertisement_id}")
+        
+    except Exception as e:
+        logger.error(f"處理下載狀態時出錯: {e}")
+        emit('download_status_error', {
+            'error': '處理下載狀態時發生錯誤'
+        })
+
+
+@socketio.on('download_request')
+def handle_download_request(data):
+    """
+    處理設備主動請求下載廣告 - 強制分片模式
+    
+    設備可以主動請求下載特定廣告
+    """
+    sid = request.sid
+    
+    try:
+        device_id = data.get('device_id')
+        advertisement_id = data.get('advertisement_id')
+        
+        # 驗證數據
+        if not device_id or not advertisement_id:
+            emit('download_request_error', {
+                'error': '缺少必要欄位: device_id, advertisement_id'
+            })
+            return
+        
+        # 檢查設備是否已註冊
+        if sid not in active_connections:
+            emit('download_request_error', {
+                'error': '設備未註冊，請先發送 register 事件'
+            })
+            return
+        
+        logger.info(f"收到下載請求: {device_id} -> {advertisement_id}")
+        
+        # 查找廣告信息
+        advertisement = db.advertisements.find_one({"_id": advertisement_id})
+        
+        if not advertisement:
+            emit('download_request_error', {
+                'error': f'廣告 {advertisement_id} 不存在'
+            })
+            return
+        
+        video_path = advertisement.get('video_path')
+        
+        if not video_path or not os.path.exists(video_path):
+            emit('download_request_error', {
+                'error': '影片文件不存在'
+            })
+            return
+        
+        # 獲取文件信息 - 強制分片模式
+        file_size = os.path.getsize(video_path)
+        chunk_size = 10 * 1024 * 1024  # 10MB
+        total_chunks = max(1, (file_size + chunk_size - 1) // chunk_size)  # 至少1個分片
+        
+        # 構建下載命令 - 強制分片模式
+        download_command = {
+            "command": "DOWNLOAD_VIDEO",
+            "advertisement_id": advertisement_id,
+            "advertisement_name": advertisement.get('name', ''),
+            "video_filename": advertisement.get('video_filename', ''),
+            "file_size": file_size,
+            "download_mode": "chunked",  # 強制分片
+            "priority": "normal",
+            "trigger": "device_request",
+            "chunk_size": chunk_size,
+            "total_chunks": total_chunks,
+            "download_url": f"/api/v1/device/videos/{advertisement_id}/chunk",
+            "download_info_url": f"/api/v1/device/videos/{advertisement_id}/download",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # 發送下載命令
+        emit('download_video', download_command)
+        
+        logger.info(f"已發送下載命令到 {device_id}: {advertisement_id} (分片模式: {total_chunks} 個分片)")
+        
+    except Exception as e:
+        logger.error(f"處理下載請求時出錯: {e}")
+        emit('download_request_error', {
+            'error': '處理下載請求時發生錯誤'
+        })
+
+
+# ============================================================================
+# 設備端分片下載 API（強制分片模式）
+# ============================================================================
+
+@app.route('/api/v1/device/videos/<advertisement_id>/download', methods=['GET'])
+def device_download_video_info(advertisement_id):
+    """
+    設備端獲取影片下載信息 - 強制分片模式
+    
+    設備用途：
+    - 獲取影片下載信息
+    - 檢查文件是否存在
+    
+    Query Parameters:
+        chunk_size: 分片大小 (bytes)，默認 10MB
+    
+    Returns:
+        {
+            "status": "success",
+            "download_info": {
+                "advertisement_id": "adv-001",
+                "filename": "video.mp4",
+                "file_size": 12345678,
+                "chunk_size": 10485760,
+                "total_chunks": 3,
+                "download_url": "/api/v1/device/videos/adv-001/chunk",
+                "download_mode": "chunked"
+            }
+        }
+    """
+    try:
+        advertisement = db.advertisements.find_one({"_id": advertisement_id})
+        
+        if not advertisement:
+            return jsonify({
+                "status": "error",
+                "message": f"廣告 {advertisement_id} 不存在"
+            }), 404
+        
+        video_path = advertisement.get('video_path')
+        
+        if not video_path or not os.path.exists(video_path):
+            return jsonify({
+                "status": "error",
+                "message": "影片文件不存在"
+            }), 404
+        
+        # 強制使用分片下載，默認 10MB 分片
+        chunk_size = int(request.args.get('chunk_size', 10 * 1024 * 1024))  # 10MB
+        
+        # 限制分片大小範圍
+        if chunk_size < 1024 * 1024:  # 最小 1MB
+            chunk_size = 1024 * 1024
+        elif chunk_size > 50 * 1024 * 1024:  # 最大 50MB
+            chunk_size = 50 * 1024 * 1024
+        
+        file_size = os.path.getsize(video_path)
+        
+        # 即使文件小於一個分片，也至少返回 1 個分片
+        total_chunks = max(1, (file_size + chunk_size - 1) // chunk_size)
+        
+        return jsonify({
+            "status": "success",
+            "download_info": {
+                "advertisement_id": advertisement_id,
+                "filename": advertisement.get('video_filename', 'video.mp4'),
+                "file_size": file_size,
+                "chunk_size": chunk_size,
+                "total_chunks": total_chunks,
+                "download_url": f"/api/v1/device/videos/{advertisement_id}/chunk",
+                "download_mode": "chunked"  # 明確標示為分片模式
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"設備下載影片信息失敗: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "獲取下載信息失敗"
+        }), 500
+
+
+@app.route('/api/v1/device/videos/<advertisement_id>/chunk', methods=['GET'])
+def device_download_video_chunk(advertisement_id):
+    """
+    設備端下載影片分片 - 支援小於一個分片的檔案
+    
+    設備用途：
+    - 分片下載影片
+    - 支持斷點續傳
+    - 處理小檔案（小於一個chunk）
+    
+    Query Parameters:
+        chunk: 分片編號 (從0開始)
+        chunk_size: 分片大小 (bytes)，默認 10MB
+    
+    Returns:
+        - 影片分片數據
+    """
+    try:
+        advertisement = db.advertisements.find_one({"_id": advertisement_id})
+        
+        if not advertisement:
+            return jsonify({
+                "status": "error",
+                "message": f"廣告 {advertisement_id} 不存在"
+            }), 404
+        
+        video_path = advertisement.get('video_path')
+        
+        if not video_path or not os.path.exists(video_path):
+            return jsonify({
+                "status": "error",
+                "message": "影片文件不存在"
+            }), 404
+        
+        # 獲取與驗證參數
+        chunk_param = request.args.get('chunk', '0')
+        chunk_size_param = request.args.get('chunk_size', str(10 * 1024 * 1024))  # 10MB
+
+        # 驗證 chunk
+        try:
+            chunk_number = int(chunk_param)
+        except (TypeError, ValueError):
+            return jsonify({
+                "status": "error",
+                "message": "參數 chunk 必須為整數"
+            }), 400
+        if chunk_number < 0:
+            return jsonify({
+                "status": "error",
+                "message": "參數 chunk 不能為負數"
+            }), 400
+
+        # 驗證 chunk_size
+        try:
+            chunk_size = int(chunk_size_param)
+        except (TypeError, ValueError):
+            return jsonify({
+                "status": "error",
+                "message": "參數 chunk_size 必須為整數"
+            }), 400
+        if chunk_size <= 0:
+            return jsonify({
+                "status": "error",
+                "message": "參數 chunk_size 必須大於 0"
+            }), 400
+        
+        # 限制分片大小範圍
+        if chunk_size < 1024 * 1024:  # 最小 1MB
+            chunk_size = 1024 * 1024
+        elif chunk_size > 50 * 1024 * 1024:  # 最大 50MB
+            chunk_size = 50 * 1024 * 1024
+        
+        file_size = os.path.getsize(video_path)
+        total_chunks = max(1, (file_size + chunk_size - 1) // chunk_size)  # 至少1個分片
+        
+        # 檢查分片編號
+        if chunk_number >= total_chunks:
+            return jsonify({
+                "status": "error",
+                "message": f"分片編號超出範圍: {chunk_number} >= {total_chunks}"
+            }), 400
+        
+        # 計算分片範圍
+        start_byte = chunk_number * chunk_size
+        end_byte = min(start_byte + chunk_size, file_size)
+        
+        # 讀取分片數據
+        with open(video_path, 'rb') as f:
+            f.seek(start_byte)
+            chunk_data = f.read(end_byte - start_byte)
+        
+        response = Response(
+            chunk_data,
+            mimetype='application/octet-stream',
+            headers={
+                'Content-Range': f'bytes {start_byte}-{end_byte-1}/{file_size}',
+                'Accept-Ranges': 'bytes',
+                'Content-Length': str(len(chunk_data)),
+                'X-Chunk-Number': str(chunk_number),
+                'X-Total-Chunks': str(total_chunks),
+                'X-Advertisement-ID': advertisement_id,
+                'X-File-Size': str(file_size)
+            }
+        )
+        
+        logger.info(f"設備下載分片: {advertisement_id}, 分片 {chunk_number}/{total_chunks}, 大小: {len(chunk_data)} bytes")
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"設備下載影片分片失敗: {e}")
+        return jsonify({
+            "status": "error",
+            "message": "下載影片分片失敗"
+        }), 500
+
+
 # ============================================================================
 # HTTP API 端點
 # ============================================================================
 
-@app.route('/', methods=['GET'])
+@app.route('/')
+@app.route('/home')
 def index():
-    """根路徑 - 提供服務信息"""
-    return jsonify({
-        "service": "智能計程車廣告服務 - 整合版",
-        "version": "2.0.0",
-        "features": [
-            "基於位置的廣告決策",
-            "WebSocket 實時推送",
-            "管理員主動插播",
-            "設備位置追蹤"
-        ],
-        "endpoints": {
-            "heartbeat": "POST /api/v1/device/heartbeat (傳統 HTTP)",
-            "location_update": "WebSocket event (推薦)",
-            "admin_override": "POST /api/v1/admin/override",
-            "init_db": "GET /init_db",
-            "health": "GET /health",
-            "connections": "GET /api/v1/admin/connections"
-        },
-        "websocket_url": "ws://localhost:8080",
-        "websocket_events": {
-            "client_to_server": ["register", "location_update", "heartbeat"],
-            "server_to_client": ["play_ad", "location_ack", "connection_established", "registration_success"]
-        }
-    }), 200
+    """根路徑 - 重定向到管理介面"""
+    return """
+    <html>
+    <head>
+        <title>智能計程車廣告系統</title>
+        <meta charset="utf-8">
+        <script>window.location.href='/admin';</script>
+    </head>
+    <body>
+        <h1>智能計程車廣告系統</h1>
+        <p>正在重定向到管理介面...</p>
+        <p>如果沒有自動跳轉，請<a href="/admin">點擊這裡</a></p>
+    </body>
+    </html>
+    """
 
 
 @app.route('/health', methods=['GET'])
@@ -427,13 +755,20 @@ def device_heartbeat():
         logger.info(f"收到 HTTP 心跳請求 - 設備: {device_id}, 位置: ({longitude}, {latitude})")
         
         # 2. 執行廣告決策
-        video_filename = ad_service.decide_ad(device_id, longitude, latitude)
+        ad_info = ad_service.decide_ad(device_id, longitude, latitude)
         
         # 3. 處理設備不存在的情況
-        if video_filename is None:
+        if ad_info is None:
             return jsonify(HeartbeatResponse.error(
                 f"找不到設備: {device_id}",
                 404
+            ))
+        
+        video_filename = ad_info.get('video_filename')
+        if not video_filename:
+            return jsonify(HeartbeatResponse.error(
+                "無法決定播放的廣告",
+                500
             ))
         
         # 4. 嘗試通過 WebSocket 推送（如果設備在線）
@@ -442,6 +777,8 @@ def device_heartbeat():
             payload = {
                 "command": "PLAY_VIDEO",
                 "video_filename": video_filename,
+                "advertisement_id": ad_info.get('advertisement_id'),
+                "advertisement_name": ad_info.get('advertisement_name', ''),
                 "trigger": "http_heartbeat",
                 "device_id": device_id,
                 "location": {
@@ -598,6 +935,21 @@ admin_blueprint = init_admin_api(
 app.register_blueprint(admin_blueprint)
 
 logger.info("前端管理 API 已註冊")
+
+
+# ============================================================================
+# 靜態檔案服務 - 管理介面
+# ============================================================================
+
+@app.route('/admin')
+@app.route('/admin_dashboard.html')
+def admin_dashboard():
+    """提供管理者後台"""
+    try:
+        with open('admin_dashboard.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "管理者後台檔案不存在", 404
 
 
 # ============================================================================
