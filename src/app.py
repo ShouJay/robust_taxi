@@ -237,6 +237,44 @@ def handle_location_update(data):
         ad_info = ad_service.decide_ad(device_id, longitude, latitude)
         
         if ad_info and ad_info.get('video_filename'):
+            # 自動下載邏輯：檢查活動中的所有廣告是否已下載
+            advertisement_ids = ad_info.get('advertisement_ids', [])
+            campaign_id = ad_info.get('campaign_id')
+            
+            if advertisement_ids and len(advertisement_ids) > 0:
+                # 推送活動中所有廣告的下載命令（如果設備沒有，會自動下載）
+                import os
+                for ad_id in advertisement_ids:
+                    advertisement = db.advertisements.find_one({"_id": ad_id})
+                    if advertisement:
+                        video_path = advertisement.get('video_path')
+                        # 如果廣告有影片文件，推送下載命令
+                        if video_path and os.path.exists(video_path):
+                            file_size = os.path.getsize(video_path)
+                            chunk_size = 10 * 1024 * 1024  # 10MB
+                            total_chunks = max(1, (file_size + chunk_size - 1) // chunk_size)
+                            
+                            download_command = {
+                                "command": "DOWNLOAD_VIDEO",
+                                "advertisement_id": ad_id,
+                                "advertisement_name": advertisement.get('name', ''),
+                                "video_filename": advertisement.get('video_filename', ''),
+                                "file_size": file_size,
+                                "download_mode": "chunked",
+                                "priority": "normal",
+                                "trigger": "auto_location_based",  # 標記為自動觸發下載
+                                "campaign_id": campaign_id,
+                                "chunk_size": chunk_size,
+                                "total_chunks": total_chunks,
+                                "download_url": f"/api/v1/device/videos/{ad_id}/chunk",
+                                "download_info_url": f"/api/v1/device/videos/{ad_id}/download",
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            
+                            # 推送下載命令（設備會檢查是否已下載，如果已下載則跳過）
+                            emit('download_video', download_command)
+                            logger.info(f"已推送自動下載命令到 {device_id}: {ad_id} (活動: {campaign_id})")
+            
             # 構建推送載荷
             payload = {
                 "command": "PLAY_VIDEO",
@@ -245,6 +283,7 @@ def handle_location_update(data):
                 "advertisement_name": ad_info.get('advertisement_name', ''),
                 "trigger": "location_based",  # 標記觸發原因
                 "device_id": device_id,
+                "campaign_id": campaign_id,
                 "location": {
                     "longitude": longitude,
                     "latitude": latitude
@@ -263,6 +302,7 @@ def handle_location_update(data):
             emit('location_ack', {
                 'message': '位置更新已處理，廣告已推送',
                 'video_filename': ad_info['video_filename'],
+                'advertisement_ids': advertisement_ids,
                 'timestamp': datetime.now().isoformat()
             })
         else:

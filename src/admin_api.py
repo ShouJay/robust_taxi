@@ -416,12 +416,24 @@ def init_admin_api(db, socketio, device_to_sid, connection_stats, active_connect
                 if '_id' in campaign:
                     campaign['campaign_id'] = campaign.pop('_id')
                 
-                # 獲取關聯的廣告信息
-                if 'advertisement_id' in campaign:
-                    ad = db.advertisements.find_one({"_id": campaign['advertisement_id']})
+                # 獲取關聯的廣告信息（支持多個廣告）
+                advertisement_ids = campaign.get('advertisement_ids', [])
+                if not advertisement_ids and 'advertisement_id' in campaign:
+                    advertisement_ids = [campaign['advertisement_id']]
+                
+                campaign['advertisement_names'] = []
+                campaign['advertisement_videos'] = []
+                for ad_id in advertisement_ids:
+                    ad = db.advertisements.find_one({"_id": ad_id})
                     if ad:
-                        campaign['advertisement_name'] = ad.get('name', '')
-                        campaign['advertisement_video'] = ad.get('video_filename', '')
+                        campaign['advertisement_names'].append(ad.get('name', ''))
+                        campaign['advertisement_videos'].append(ad.get('video_filename', ''))
+                
+                # 向後兼容：保留單個廣告的欄位
+                if len(advertisement_ids) > 0:
+                    campaign['advertisement_id'] = advertisement_ids[0]
+                    if len(campaign['advertisement_names']) > 0:
+                        campaign['advertisement_name'] = campaign['advertisement_names'][0]
             
             return jsonify({
                 "status": "success",
@@ -434,6 +446,141 @@ def init_admin_api(db, socketio, device_to_sid, connection_stats, active_connect
             return jsonify({
                 "status": "error",
                 "message": "獲取活動列表失敗"
+            }), 500
+    
+    
+    @admin_api.route('/campaigns', methods=['POST'])
+    def create_campaign():
+        """
+        創建新活動
+        
+        前端用途：
+        - 活動創建頁面
+        
+        Request Body:
+            {
+                "campaign_id": "camp-001",  // 可選，不提供則自動生成
+                "name": "活動名稱",
+                "advertisement_ids": ["adv-001", "adv-002"],  // 廣告ID列表（支持多個）
+                "priority": 5,
+                "target_groups": ["general"],
+                "center_location": {
+                    "longitude": 121.5645,
+                    "latitude": 25.0330
+                },
+                "radius_meters": 500  // 範圍半徑（公尺）
+            }
+        
+        Returns:
+            {
+                "status": "success",
+                "campaign_id": "...",
+                "message": "活動創建成功"
+            }
+        """
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({
+                    "status": "error",
+                    "message": "請求體不能為空"
+                }), 400
+            
+            campaign_id = data.get('campaign_id')
+            name = data.get('name')
+            advertisement_ids = data.get('advertisement_ids', [])
+            priority = data.get('priority', 5)
+            target_groups = data.get('target_groups', ['general'])
+            center_location = data.get('center_location')
+            radius_meters = data.get('radius_meters', 500)
+            
+            # 驗證必要欄位
+            if not name:
+                return jsonify({
+                    "status": "error",
+                    "message": "缺少必要欄位: name"
+                }), 400
+            
+            if not advertisement_ids or len(advertisement_ids) == 0:
+                return jsonify({
+                    "status": "error",
+                    "message": "缺少必要欄位: advertisement_ids（至少需要一個廣告）"
+                }), 400
+            
+            if not center_location:
+                return jsonify({
+                    "status": "error",
+                    "message": "缺少必要欄位: center_location"
+                }), 400
+            
+            center_longitude = center_location.get('longitude')
+            center_latitude = center_location.get('latitude')
+            
+            if center_longitude is None or center_latitude is None:
+                return jsonify({
+                    "status": "error",
+                    "message": "center_location 必須包含 longitude 和 latitude"
+                }), 400
+            
+            # 驗證經緯度範圍
+            if not (-180 <= center_longitude <= 180) or not (-90 <= center_latitude <= 90):
+                return jsonify({
+                    "status": "error",
+                    "message": "經緯度範圍無效"
+                }), 400
+            
+            # 驗證廣告是否存在
+            for ad_id in advertisement_ids:
+                ad = db.advertisements.find_one({"_id": ad_id})
+                if not ad:
+                    return jsonify({
+                        "status": "error",
+                        "message": f"廣告 {ad_id} 不存在"
+                    }), 404
+            
+            # 如果沒有提供 campaign_id，自動生成
+            if not campaign_id:
+                import uuid
+                campaign_id = f"camp-{uuid.uuid4().hex[:8]}"
+            
+            # 檢查活動ID是否已存在
+            existing = db.campaigns.find_one({"_id": campaign_id})
+            if existing:
+                return jsonify({
+                    "status": "error",
+                    "message": f"活動 {campaign_id} 已存在"
+                }), 400
+            
+            # 創建活動
+            from models import CampaignModel
+            campaign = CampaignModel.create_with_center(
+                campaign_id=campaign_id,
+                name=name,
+                advertisement_ids=advertisement_ids,
+                priority=priority,
+                target_groups=target_groups,
+                center_longitude=center_longitude,
+                center_latitude=center_latitude,
+                radius_meters=radius_meters
+            )
+            
+            db.campaigns.insert_one(campaign)
+            
+            logger.info(f"新活動已創建: {campaign_id}, 中心點: ({center_longitude}, {center_latitude}), 半徑: {radius_meters}公尺")
+            
+            return jsonify({
+                "status": "success",
+                "message": "活動創建成功",
+                "campaign_id": campaign_id,
+                "campaign": campaign
+            }), 201
+            
+        except Exception as e:
+            logger.error(f"創建活動失敗: {e}")
+            return jsonify({
+                "status": "error",
+                "message": f"創建活動失敗: {str(e)}"
             }), 500
     
     
@@ -465,11 +612,21 @@ def init_admin_api(db, socketio, device_to_sid, connection_stats, active_connect
             campaign['campaign_id'] = campaign.pop('_id')
             
             # 獲取關聯的廣告詳細信息
-            if 'advertisement_id' in campaign:
-                ad = db.advertisements.find_one({"_id": campaign['advertisement_id']})
+            advertisement_ids = campaign.get('advertisement_ids', [])
+            if not advertisement_ids and 'advertisement_id' in campaign:
+                advertisement_ids = [campaign['advertisement_id']]
+            
+            campaign['advertisements'] = []
+            for ad_id in advertisement_ids:
+                ad = db.advertisements.find_one({"_id": ad_id})
                 if ad:
-                    ad['advertisement_id'] = ad.pop('_id')
-                    campaign['advertisement'] = ad
+                    ad_info = {
+                        "advertisement_id": ad['_id'],
+                        "name": ad.get('name', ''),
+                        "video_filename": ad.get('video_filename', ''),
+                        "file_exists": ad.get('video_path') and os.path.exists(ad.get('video_path', '')) if ad.get('video_path') else False
+                    }
+                    campaign['advertisements'].append(ad_info)
             
             return jsonify({
                 "status": "success",

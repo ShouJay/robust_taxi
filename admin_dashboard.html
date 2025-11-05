@@ -327,11 +327,13 @@
 
         .modal-content {
             background-color: white;
-            margin: 10% auto;
+            margin: 5% auto;
             padding: 2rem;
             border-radius: 8px;
             width: 80%;
             max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
             position: relative;
         }
 
@@ -347,7 +349,24 @@
         .close:hover {
             color: #000;
         }
+        .map-container {
+            margin-top: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            height: 300px;
+        }
+        
+        .map-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }
     </style>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-o9N1j7kPvxHboV3QbE6PUYZoXBcjc9V0w6pHia1u5r0=" crossorigin="" />
 </head>
 <body>
     <!-- 頂部導航欄 -->
@@ -544,7 +563,12 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             <div id="campaignsPage" class="page-content">
                 <h2>活動管理</h2>
                 <div class="card">
-                    <div class="card-title">活動列表</div>
+                    <div class="card-title">
+                        活動列表
+                        <button class="btn btn-success" style="float: right;" onclick="showCreateCampaignModal()">
+                            ➕ 新增活動
+                        </button>
+                    </div>
                     <div id="campaignsList">
                         <div class="loader"></div>
                     </div>
@@ -647,6 +671,86 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             </form>
         </div>
     </div>
+
+    <!-- 創建活動彈窗 -->
+    <div id="createCampaignModal" class="modal">
+        <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+            <span class="close" onclick="closeModal('createCampaignModal')">&times;</span>
+            <h3>創建新活動</h3>
+            <form id="createCampaignForm">
+                <div class="form-group">
+                    <label class="form-label">活動ID（選填）</label>
+                    <input type="text" id="newCampaignId" class="form-control" placeholder="自動生成">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">活動名稱 *</label>
+                    <input type="text" id="newCampaignName" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">優先級</label>
+                    <input type="number" id="newCampaignPriority" class="form-control" min="1" max="10" value="5">
+                    <small style="color: #7f8c8d;">數值越大優先級越高</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">目標群組</label>
+                    <input type="text" id="newCampaignGroups" class="form-control" placeholder="輸入標籤，用逗號分隔" value="general">
+                    <small style="color: #7f8c8d;">例如: general, premium, taipei</small>
+                </div>
+                
+                <hr style="margin: 1.5rem 0;">
+                
+                <h4 style="margin-bottom: 1rem;">📍 GPS位置設定</h4>
+                <div class="form-group">
+                    <label class="form-label">中心點經度 *</label>
+                    <input type="number" id="centerLongitude" class="form-control" step="0.000001" required placeholder="例如: 121.5645">
+                    <small style="color: #7f8c8d;">範圍: -180 到 180</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">中心點緯度 *</label>
+                    <input type="number" id="centerLatitude" class="form-control" step="0.000001" required placeholder="例如: 25.0330">
+                    <small style="color: #7f8c8d;">範圍: -90 到 90</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">範圍半徑（公尺）*</label>
+                    <input type="number" id="radiusMeters" class="form-control" min="10" max="10000" value="500" required>
+                    <small style="color: #7f8c8d;">設備進入此範圍內會觸發廣告播放</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">使用地圖選擇位置</label>
+                    <div id="campaignMap" class="map-container"></div>
+                    <div class="map-toolbar">
+                        <button type="button" class="btn btn-primary btn-small" onclick="locateCurrentPosition()">
+                            📍 使用目前定位
+                        </button>
+                        <button type="button" class="btn btn-primary btn-small" onclick="centerMapToInputs()">
+                            🎯 將地圖移至輸入座標
+                        </button>
+                        <small style="color: #7f8c8d; flex: 1 1 100%;">
+                            小提示：點擊地圖或拖曳標記即可更新經緯度欄位
+                        </small>
+                    </div>
+                </div>
+                
+                <hr style="margin: 1.5rem 0;">
+                
+                <h4 style="margin-bottom: 1rem;">🎬 廣告列表（循環播放）</h4>
+                <div class="form-group">
+                    <label class="form-label">選擇廣告 *</label>
+                    <div id="campaignAdSelector" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px;">
+                        <p>載入廣告中...</p>
+                    </div>
+                    <small style="color: #7f8c8d;">可選擇多個廣告，設備會循環播放這些廣告</small>
+                </div>
+                
+                <button type="submit" class="btn btn-success">創建活動</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 第三方函式庫 -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-SmSRN1ogbH0GkM1Jr1cOGn97d8iRgx0G2v+rj0i0X6Y=" crossorigin=""></script>
 
     <!-- Socket.IO 客戶端庫 -->
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
@@ -1063,21 +1167,61 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                 <tr>
                                     <th>ID</th>
                                     <th>名稱</th>
-                                    <th>廣告</th>
+                                    <th>廣告列表</th>
+                                    <th>中心位置</th>
+                                    <th>範圍</th>
                                     <th>優先級</th>
                                     <th>目標群組</th>
+                                    <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.campaigns.map(campaign => `
-                                    <tr>
-                                        <td>${campaign.campaign_id}</td>
-                                        <td>${campaign.name}</td>
-                                        <td>${campaign.advertisement_name || campaign.advertisement_id}</td>
-                                        <td>${campaign.priority}</td>
-                                        <td>${campaign.target_groups.join(', ')}</td>
-                                    </tr>
-                                `).join('')}
+                                ${data.campaigns.map(campaign => {
+                                    // 安全地獲取中心位置
+                                    let centerText = '-';
+                                    try {
+                                        if (campaign.center_location && campaign.center_location.coordinates) {
+                                            const coords = campaign.center_location.coordinates;
+                                            if (Array.isArray(coords) && coords.length >= 2 && 
+                                                typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                                                centerText = `(${coords[0].toFixed(6)}, ${coords[1].toFixed(6)})`;
+                                            }
+                                        } else if (campaign.geo_fence && campaign.geo_fence.coordinates) {
+                                            // 嘗試從地理圍欄的第一個點獲取中心位置
+                                            const firstPoint = campaign.geo_fence.coordinates[0];
+                                            if (Array.isArray(firstPoint) && firstPoint.length > 0) {
+                                                const point = Array.isArray(firstPoint[0]) ? firstPoint[0] : firstPoint;
+                                                if (Array.isArray(point) && point.length >= 2 && 
+                                                    typeof point[0] === 'number' && typeof point[1] === 'number') {
+                                                    centerText = `(${point[0].toFixed(6)}, ${point[1].toFixed(6)})`;
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        centerText = '-';
+                                    }
+                                    
+                                    const radius = campaign.radius_meters ? `${campaign.radius_meters} 公尺` : '-';
+                                    const ads = campaign.advertisement_ids || (campaign.advertisement_id ? [campaign.advertisement_id] : []);
+                                    const adsText = ads.length > 0 ? `${ads.length} 個廣告` : '-';
+                                    
+                                    return `
+                                        <tr>
+                                            <td>${campaign.campaign_id}</td>
+                                            <td><strong>${campaign.name}</strong></td>
+                                            <td>${adsText}</td>
+                                            <td>${centerText}</td>
+                                            <td>${radius}</td>
+                                            <td>${campaign.priority || '-'}</td>
+                                            <td>${campaign.target_groups ? campaign.target_groups.join(', ') : '-'}</td>
+                                            <td>
+                                                <button class="btn btn-primary btn-small" onclick="viewCampaignDetail('${campaign.campaign_id}')">
+                                                    查看
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
                             </tbody>
                         </table>
                     `;
@@ -1186,6 +1330,263 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 e.preventDefault();
                 await createAdvertisement();
             });
+            
+            // 創建活動表單
+            document.getElementById('createCampaignForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await createCampaign();
+            });
+
+            // 綁定經緯度輸入的同步事件
+            document.getElementById('centerLongitude').addEventListener('change', () => {
+                updateMapFromInputs();
+            });
+            document.getElementById('centerLatitude').addEventListener('change', () => {
+                updateMapFromInputs();
+            });
+        }
+        
+        // 顯示創建活動彈窗
+        async function showCreateCampaignModal() {
+            // 載入廣告列表
+            try {
+                const response = await fetch(API_BASE + '/advertisements?status=active');
+                const data = await response.json();
+                
+                const adSelector = document.getElementById('campaignAdSelector');
+                if (data.advertisements && data.advertisements.length > 0) {
+                    adSelector.innerHTML = data.advertisements.map(ad => `
+                        <label style="display: block; padding: 5px;">
+                            <input type="checkbox" name="campaignAds" value="${ad.advertisement_id}" style="margin-right: 8px;">
+                            ${ad.name} (${ad.video_filename || '無影片'})
+                        </label>
+                    `).join('');
+                } else {
+                    adSelector.innerHTML = '<p>目前沒有可用的廣告，請先上傳廣告</p>';
+                }
+            } catch (error) {
+                addLog('載入廣告列表失敗: ' + error.message, 'error');
+                document.getElementById('campaignAdSelector').innerHTML = '<p>載入失敗</p>';
+            }
+            
+            document.getElementById('createCampaignModal').style.display = 'block';
+            setTimeout(() => {
+                initCampaignMap();
+            }, 50);
+        }
+        
+        function initCampaignMap() {
+            const defaultLng = parseFloat(document.getElementById('centerLongitude').value) || 121.5645;
+            const defaultLat = parseFloat(document.getElementById('centerLatitude').value) || 25.0330;
+            const initialCoords = [defaultLat, defaultLng];
+
+            if (!campaignMap) {
+                campaignMap = L.map('campaignMap').setView(initialCoords, 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; OpenStreetMap 貢獻者'
+                }).addTo(campaignMap);
+
+                campaignMapMarker = L.marker(initialCoords, { draggable: true }).addTo(campaignMap);
+
+                campaignMap.on('click', function (event) {
+                    updateMarkerAndInputs(event.latlng);
+                });
+
+                campaignMapMarker.on('dragend', function (event) {
+                    const latlng = event.target.getLatLng();
+                    updateInputsFromLatLng(latlng);
+                });
+            } else {
+                campaignMap.setView(initialCoords, campaignMap.getZoom());
+                campaignMapMarker.setLatLng(initialCoords);
+            }
+
+            setTimeout(() => {
+                campaignMap.invalidateSize();
+            }, 100);
+        }
+
+        function updateMapFromInputs() {
+            if (!campaignMap) return;
+            const lng = parseFloat(document.getElementById('centerLongitude').value);
+            const lat = parseFloat(document.getElementById('centerLatitude').value);
+            if (isNaN(lng) || isNaN(lat)) return;
+            const coords = { lat, lng };
+            campaignMap.setView(coords, campaignMap.getZoom());
+            campaignMapMarker.setLatLng(coords);
+        }
+
+        function updateMarkerAndInputs(latlng) {
+            campaignMapMarker.setLatLng(latlng);
+            updateInputsFromLatLng(latlng);
+        }
+
+        function updateInputsFromLatLng(latlng) {
+            document.getElementById('centerLongitude').value = latlng.lng.toFixed(6);
+            document.getElementById('centerLatitude').value = latlng.lat.toFixed(6);
+        }
+
+        function locateCurrentPosition() {
+            if (!navigator.geolocation) {
+                alert('瀏覽器不支援定位功能');
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(position => {
+                const latlng = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+                if (!campaignMap) initCampaignMap();
+                campaignMap.setView(latlng, 15);
+                updateMarkerAndInputs(latlng);
+            }, error => {
+                alert('取得定位失敗: ' + error.message);
+            });
+        }
+
+        function centerMapToInputs() {
+            updateMapFromInputs();
+        }
+
+        // 創建活動
+        async function createCampaign() {
+            const campaignId = document.getElementById('newCampaignId').value.trim();
+            const campaignName = document.getElementById('newCampaignName').value.trim();
+            const priority = parseInt(document.getElementById('newCampaignPriority').value) || 5;
+            const groupsInput = document.getElementById('newCampaignGroups').value.trim();
+            const centerLongitude = parseFloat(document.getElementById('centerLongitude').value);
+            const centerLatitude = parseFloat(document.getElementById('centerLatitude').value);
+            const radiusMeters = parseInt(document.getElementById('radiusMeters').value);
+            
+            // 獲取選中的廣告
+            const selectedAds = Array.from(document.querySelectorAll('input[name="campaignAds"]:checked'))
+                .map(cb => cb.value);
+            
+            // 驗證
+            if (!campaignName) {
+                alert('請輸入活動名稱');
+                return;
+            }
+            
+            if (isNaN(centerLongitude) || isNaN(centerLatitude)) {
+                alert('請輸入有效的GPS座標');
+                return;
+            }
+            
+            if (isNaN(radiusMeters) || radiusMeters < 10) {
+                alert('請輸入有效的範圍半徑（至少10公尺）');
+                return;
+            }
+            
+            if (selectedAds.length === 0) {
+                alert('請至少選擇一個廣告');
+                return;
+            }
+            
+            // 解析群組標籤
+            const groups = groupsInput.split(',').map(g => g.trim()).filter(g => g);
+            
+            try {
+                const response = await fetch(API_BASE + '/campaigns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        campaign_id: campaignId || undefined,
+                        name: campaignName,
+                        advertisement_ids: selectedAds,
+                        priority: priority,
+                        target_groups: groups.length > 0 ? groups : ['general'],
+                        center_location: {
+                            longitude: centerLongitude,
+                            latitude: centerLatitude
+                        },
+                        radius_meters: radiusMeters
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    addLog(`活動創建成功: ${data.campaign_id}`, 'success');
+                    alert('✅ 活動創建成功！\n\n活動ID: ' + data.campaign_id + '\n\n當設備進入此範圍時，會自動下載並循環播放選中的廣告。');
+                    closeModal('createCampaignModal');
+                    
+                    // 重置表單
+                    document.getElementById('createCampaignForm').reset();
+                    document.getElementById('newCampaignGroups').value = 'general';
+                    document.getElementById('newCampaignPriority').value = '5';
+                    document.getElementById('radiusMeters').value = '500';
+                    
+                    // 刷新活動列表
+                    loadCampaigns();
+                } else {
+                    throw new Error(data.message || '創建失敗');
+                }
+            } catch (error) {
+                addLog('創建活動失敗: ' + error.message, 'error');
+                alert('創建活動失敗: ' + error.message);
+            }
+        }
+        
+        // 查看活動詳情
+        async function viewCampaignDetail(campaignId) {
+            try {
+                const response = await fetch(API_BASE + `/campaigns/${campaignId}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const campaign = data.campaign;
+                    const ads = campaign.advertisements || [];
+                    
+                    // 安全地獲取中心位置
+                    let centerText = '-';
+                    try {
+                        if (campaign.center_location && campaign.center_location.coordinates) {
+                            const coords = campaign.center_location.coordinates;
+                            if (Array.isArray(coords) && coords.length >= 2 && 
+                                typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                                centerText = `(${coords[0].toFixed(6)}, ${coords[1].toFixed(6)})`;
+                            }
+                        } else if (campaign.geo_fence && campaign.geo_fence.coordinates) {
+                            const firstPoint = campaign.geo_fence.coordinates[0];
+                            if (Array.isArray(firstPoint) && firstPoint.length > 0) {
+                                const point = Array.isArray(firstPoint[0]) ? firstPoint[0] : firstPoint;
+                                if (Array.isArray(point) && point.length >= 2 && 
+                                    typeof point[0] === 'number' && typeof point[1] === 'number') {
+                                    centerText = `(${point[0].toFixed(6)}, ${point[1].toFixed(6)})`;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        centerText = '-';
+                    }
+                    
+                    let message = `活動詳情\n\n`;
+                    message += `ID: ${campaign.campaign_id}\n`;
+                    message += `名稱: ${campaign.name}\n`;
+                    message += `優先級: ${campaign.priority || '-'}\n`;
+                    message += `目標群組: ${campaign.target_groups ? campaign.target_groups.join(', ') : '-'}\n`;
+                    message += `中心位置: ${centerText}\n`;
+                    message += `範圍: ${campaign.radius_meters ? campaign.radius_meters + ' 公尺' : '-'}\n\n`;
+                    message += `廣告列表 (${ads.length} 個):\n`;
+                    if (ads.length > 0) {
+                        ads.forEach((ad, index) => {
+                            message += `${index + 1}. ${ad.name || '未命名'} (${ad.video_filename || '無影片'})\n`;
+                        });
+                    } else {
+                        message += `無廣告\n`;
+                    }
+                    
+                    alert(message);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('獲取活動詳情失敗: ' + error.message, 'error');
+                alert('獲取活動詳情失敗: ' + error.message);
+            }
         }
         
         // 分片上傳影片

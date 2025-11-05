@@ -61,7 +61,7 @@ class CampaignModel:
     @staticmethod
     def create(campaign_id, name, advertisement_id, priority, target_groups, geo_fence_coordinates):
         """
-        創建活動文檔
+        創建活動文檔（向後兼容舊版本）
         
         Args:
             campaign_id: 活動 ID
@@ -83,6 +83,64 @@ class CampaignModel:
                 "type": "Polygon",
                 "coordinates": geo_fence_coordinates
             }
+        }
+    
+    @staticmethod
+    def create_with_center(campaign_id, name, advertisement_ids, priority, target_groups, 
+                          center_longitude, center_latitude, radius_meters):
+        """
+        創建活動文檔（使用中心點和半徑）
+        
+        Args:
+            campaign_id: 活動 ID
+            name: 活動名稱
+            advertisement_ids: 關聯的廣告 ID 列表（支持多個廣告循環播放）
+            priority: 優先級（數值越大優先級越高）
+            target_groups: 目標分組列表
+            center_longitude: 中心點經度
+            center_latitude: 中心點緯度
+            radius_meters: 半徑（公尺）
+        
+        Returns:
+            活動文檔字典
+        """
+        import math
+        
+        # 將半徑轉換為公里
+        radius_km = radius_meters / 1000
+        
+        # 生成圓形的近似多邊形（32個點，更精確）
+        points = []
+        for i in range(32):
+            angle = (2 * math.pi * i) / 32
+            # 經緯度偏移計算
+            dx = radius_km / 111.32 * math.cos(angle)  # 經度
+            dy = radius_km / 110.574 * math.sin(angle)  # 緯度
+            points.append([center_longitude + dx, center_latitude + dy])
+        
+        # 閉合多邊形
+        points.append(points[0])
+        
+        return {
+            "_id": campaign_id,
+            "name": name,
+            "advertisement_ids": advertisement_ids if isinstance(advertisement_ids, list) else [advertisement_ids],
+            "advertisement_id": advertisement_ids[0] if isinstance(advertisement_ids, list) and len(advertisement_ids) > 0 else advertisement_ids,  # 向後兼容
+            "priority": priority,
+            "target_groups": target_groups,
+            "status": "active",
+            "geo_fence": {
+                "type": "Polygon",
+                "coordinates": [points]
+            },
+            "center_location": {
+                "type": "Point",
+                "coordinates": [center_longitude, center_latitude]
+            },
+            "radius_meters": radius_meters,
+            "play_mode": "cycle",  # 播放模式：cycle（循環播放）
+            "current_ad_index": 0,  # 當前播放的廣告索引（用於循環）
+            "created_at": datetime.now().isoformat()
         }
     
     @staticmethod
