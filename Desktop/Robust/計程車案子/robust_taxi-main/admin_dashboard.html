@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能計程車廣告管理系統</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+
+        /* 頂部導航欄 */
+        .navbar {
+            background-color: #2c3e50;
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .navbar h1 {
+            font-size: 1.5rem;
+            font-weight: 500;
+        }
+
+        /* 主要容器 */
+        .container {
+            display: flex;
+            min-height: calc(100vh - 60px);
+        }
+
+        /* 側邊欄 */
+        .sidebar {
+            width: 250px;
+            background-color: #34495e;
+            padding: 1rem 0;
+        }
+
+        .sidebar-item {
+            padding: 1rem 1.5rem;
+            color: #ecf0f1;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            font-size: 1rem;
+        }
+
+        .sidebar-item:hover {
+            background-color: #2c3e50;
+        }
+
+        .sidebar-item.active {
+            background-color: #3498db;
+        }
+
+        .sidebar-item i {
+            margin-right: 0.5rem;
+            width: 20px;
+            display: inline-block;
+        }
+
+        /* 主內容區 */
+        .main-content {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        /* 卡片樣式 */
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+
+        /* 統計卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #3498db;
+        }
+
+        .stat-label {
+            color: #7f8c8d;
+            margin-top: 0.5rem;
+        }
+
+        /* 表格樣式 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        /* 按鈕樣式 */
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #2980b9;
+        }
+
+        .btn-success {
+            background-color: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background-color: #229954;
+        }
+
+        .btn-danger {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+
+        .btn-small {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        /* 表單樣式 */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        /* 進度條 */
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #3498db;
+            transition: width 0.3s ease;
+        }
+
+        /* 日誌區域 */
+        .log-container {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 1rem;
+            border-radius: 4px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+        }
+
+        .log-entry {
+            margin-bottom: 0.25rem;
+        }
+
+        .log-time {
+            color: #95a5a6;
+        }
+
+        /* 分頁內容 */
+        .page-content {
+            display: none;
+        }
+
+        .page-content.active {
+            display: block;
+        }
+
+        /* 設備卡片 */
+        .device-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .device-info {
+            flex: 1;
+        }
+
+        .device-status {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .status-offline {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        /* 響應式設計 */
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+            
+            .main-content {
+                padding: 1rem;
+            }
+        }
+
+        /* 加載動畫 */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 彈窗樣式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 2rem;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 600px;
+            position: relative;
+        }
+
+        .close {
+            position: absolute;
+            right: 1rem;
+            top: 1rem;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #aaa;
+        }
+
+        .close:hover {
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <!-- 頂部導航欄 -->
+    <nav class="navbar">
+        <h1>🚕 智能計程車廣告管理系統</h1>
+    </nav>
+
+    <!-- 主容器 -->
+    <div class="container">
+        <!-- 側邊欄 -->
+        <aside class="sidebar">
+            <button class="sidebar-item active" onclick="showPage('dashboard', event)">
+                <i>📊</i> 儀表板
+            </button>
+            <button class="sidebar-item" onclick="showPage('register', event)">
+                <i>➕</i> 設備註冊
+            </button>
+            <button class="sidebar-item" onclick="showPage('devices', event)">
+                <i>📱</i> 設備管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('ads', event)">
+                <i>🎬</i> 廣告管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('upload', event)">
+                <i>⬆️</i> 影片上傳
+            </button>
+            <button class="sidebar-item" onclick="showPage('campaigns', event)">
+                <i>📍</i> 活動管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('push', event)">
+                <i>📢</i> 推送控制
+            </button>
+            <button class="sidebar-item" onclick="showPage('download', event)">
+                <i>⬇️</i> 下載管理
+            </button>
+            <button class="sidebar-item" onclick="showPage('logs', event)">
+                <i>📝</i> 系統日誌
+            </button>
+        </aside>
+
+        <!-- 主內容區 -->
+        <main class="main-content">
+            <!-- 儀表板頁面 -->
+            <div id="dashboardPage" class="page-content active">
+                <h2>系統儀表板</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="activeDevices">0</div>
+                        <div class="stat-label">活動設備</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalAds">0</div>
+                        <div class="stat-label">廣告總數</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="activeCampaigns">0</div>
+                        <div class="stat-label">活動數量</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="todayPushes">0</div>
+                        <div class="stat-label">今日推送</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">系統狀態</div>
+                    <div id="systemStatus">
+                        <p>載入中...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 設備註冊頁面 -->
+            <div id="registerPage" class="page-content">
+                <h2>設備註冊</h2>
+                <div class="card">
+                    <div class="card-title">註冊新設備</div>
+                    <form id="registerDeviceForm">
+                        <div class="form-group">
+                            <label class="form-label">設備 ID *</label>
+                            <input type="text" id="newDeviceId" class="form-control" 
+                                   placeholder="例如: taxi-AAB-1234-rooftop" required>
+                            <small style="color: #7f8c8d;">建議格式: taxi-{車牌}-{類型}</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">設備類型 *</label>
+                            <select id="newDeviceType" class="form-control">
+                                <option value="rooftop_display">車頂顯示器</option>
+                                <option value="in_car_screen">車內螢幕</option>
+                                <option value="mobile_app">手機 App</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">群組標籤</label>
+                            <input type="text" id="newDeviceGroups" class="form-control" 
+                                   placeholder="輸入標籤，用逗號分隔" value="general">
+                            <small style="color: #7f8c8d;">例如: general, premium, taipei</small>
+                        </div>
+                        <button type="submit" class="btn btn-success">註冊設備</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">
+                        已註冊設備列表
+                        <button class="btn btn-primary btn-small" style="float: right;" onclick="loadRegisteredDevices()">
+                            🔄 刷新
+                        </button>
+                    </div>
+                    <div id="registeredDevicesList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+
+                <div class="card" style="background: #e8f5e9;">
+                    <div class="card-title">📱 連接說明</div>
+                    <ol style="line-height: 1.8;">
+                        <li>在上方表單中填寫設備資訊並點擊「註冊設備」</li>
+                        <li>記下分配的設備 ID（例如: taxi-AAB-1234-rooftop）</li>
+                        <li>在 App 端使用以下方式連接：
+                            <pre style="background: #fff; padding: 10px; margin-top: 10px; border-radius: 4px;">
+python tests/test_location_client.py <設備ID> 5
+
+範例:
+python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
+                        </li>
+                        <li>連接成功後，設備會自動出現在「設備管理」頁面</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- 設備管理頁面 -->
+            <div id="devicesPage" class="page-content">
+                <h2>設備管理</h2>
+                <div class="card">
+                    <div class="card-title">
+                        線上設備
+                        <button class="btn btn-primary" style="float: right;" onclick="refreshDevices()">
+                            🔄 刷新
+                        </button>
+                    </div>
+                    <div id="devicesList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 廣告管理頁面 -->
+            <div id="adsPage" class="page-content">
+                <h2>廣告管理</h2>
+                <div class="card">
+                    <div class="card-title">
+                        廣告列表
+                        <button class="btn btn-success" style="float: right;" onclick="showCreateAdModal()">
+                            ➕ 新增廣告
+                        </button>
+                    </div>
+                    <div id="adsList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 影片上傳頁面 -->
+            <div id="uploadPage" class="page-content">
+                <h2>影片上傳</h2>
+                <div class="card">
+                    <div class="card-title">分片上傳影片</div>
+                    <form id="uploadForm">
+                        <div class="form-group">
+                            <label class="form-label">選擇影片文件</label>
+                            <input type="file" id="videoFile" class="form-control" accept="video/*" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">廣告名稱</label>
+                            <input type="text" id="adName" class="form-control" placeholder="輸入廣告名稱" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">廣告ID（選填）</label>
+                            <input type="text" id="adId" class="form-control" placeholder="自動生成">
+                        </div>
+                        <button type="submit" class="btn btn-primary">開始上傳</button>
+                    </form>
+                    <div id="uploadProgress" style="display: none; margin-top: 1rem;">
+                        <div class="progress">
+                            <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+                        </div>
+                        <p id="progressText">準備上傳...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 活動管理頁面 -->
+            <div id="campaignsPage" class="page-content">
+                <h2>活動管理</h2>
+                <div class="card">
+                    <div class="card-title">活動列表</div>
+                    <div id="campaignsList">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 推送控制頁面 -->
+            <div id="pushPage" class="page-content">
+                <h2>推送控制</h2>
+                <div class="card">
+                    <div class="card-title">即時推送廣告</div>
+                    <form id="pushForm">
+                        <div class="form-group">
+                            <label class="form-label">選擇目標設備</label>
+                            <div id="deviceSelector">
+                                <p>載入設備中...</p>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">選擇廣告</label>
+                            <select id="adSelector" class="form-control">
+                                <option value="">選擇廣告...</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">立即推送</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 下載管理頁面 -->
+            <div id="downloadPage" class="page-content">
+                <h2>下載管理</h2>
+                <div class="card">
+                    <div class="card-title">推送影片下載</div>
+                    <form id="downloadForm">
+                        <div class="form-group">
+                            <label class="form-label">選擇目標設備</label>
+                            <div id="downloadDeviceSelector">
+                                <p>載入設備中...</p>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">選擇要下載的廣告</label>
+                            <select id="downloadAdSelector" class="form-control">
+                                <option value="">選擇廣告...</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">推送下載</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 系統日誌頁面 -->
+            <div id="logsPage" class="page-content">
+                <h2>系統日誌</h2>
+                <div class="card">
+                    <div class="card-title">
+                        實時日誌
+                        <button class="btn btn-danger btn-small" style="float: right;" onclick="clearLogs()">
+                            清空日誌
+                        </button>
+                    </div>
+                    <div class="log-container" id="logContainer">
+                        <div class="log-entry">
+                            <span class="log-time">[系統啟動]</span> 管理系統已啟動
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 創建廣告彈窗 -->
+    <div id="createAdModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('createAdModal')">&times;</span>
+            <h3>創建新廣告</h3>
+            <form id="createAdForm">
+                <div class="form-group">
+                    <label class="form-label">廣告ID</label>
+                    <input type="text" id="newAdId" class="form-control" placeholder="自動生成">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">廣告名稱</label>
+                    <input type="text" id="newAdName" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">類型</label>
+                    <select id="newAdType" class="form-control">
+                        <option value="general">一般廣告</option>
+                        <option value="promotion">促銷廣告</option>
+                        <option value="event">活動廣告</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">優先級</label>
+                    <input type="number" id="newAdPriority" class="form-control" min="1" max="10" value="5">
+                </div>
+                <button type="submit" class="btn btn-success">創建廣告</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Socket.IO 客戶端庫 -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <script>
+
+        // Socket.IO 連接
+        let socket = null;
+        // API 基礎路徑
+        // 自動偵測目前網域與協定
+        const API_BASE = window.location.origin + '/api/v1/admin';
+        // 更穩定版本（Azure App Service 專用）
+        const SOCKETIO_URL = window.location.origin;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initWebSocket();
+            loadDashboard();
+            setupEventListeners();
+        });
+
+        // socket = io(SOCKETIO_URL, {
+        //     transports: ['websocket'],  // 保留純 websocket
+        //     reconnection: true,
+        //     reconnectionDelay: 5000,
+        //     reconnectionAttempts: Infinity
+        // });
+
+
+        // 當前頁面
+        let currentPage = 'dashboard';
+        
+
+        
+        // 初始化 WebSocket (使用 Socket.IO)
+        function initWebSocket() {
+            try {
+                // 如果已經有連接，先斷開
+                if (socket) {
+                    socket.disconnect();
+                }
+                
+                // 建立 Socket.IO 連接
+                socket = io(SOCKETIO_URL, {
+                    transports: ['websocket'],
+                    reconnection: true,
+                    reconnectionDelay: 5000,
+                    reconnectionAttempts: Infinity
+                });
+                
+                socket.on('connect', function() {
+                    addLog('Socket.IO 連接已建立 (SID: ' + socket.id + ')', 'info');
+                });
+                
+                socket.on('disconnect', function() {
+                    addLog('Socket.IO 連接已斷開', 'warning');
+                });
+                
+                socket.on('connect_error', function(error) {
+                    addLog('Socket.IO 連接錯誤: ' + error.message, 'error');
+                });
+                
+                socket.on('connection_established', function(data) {
+                    addLog('服務器確認連接: ' + data.message, 'info');
+                });
+                
+                // 監聽設備連接/斷開事件
+                socket.on('device_status', function(data) {
+                    handleWebSocketMessage(data);
+                });
+                
+            } catch (error) {
+                addLog('初始化 Socket.IO 失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 處理 WebSocket 消息
+        function handleWebSocketMessage(data) {
+            switch(data.type) {
+                case 'device_connected':
+                    addLog(`設備 ${data.device_id} 已連接`, 'info');
+                    if (currentPage === 'dashboard' || currentPage === 'devices') {
+                        loadDashboard();
+                    }
+                    break;
+                case 'device_disconnected':
+                    addLog(`設備 ${data.device_id} 已斷開`, 'warning');
+                    if (currentPage === 'dashboard' || currentPage === 'devices') {
+                        loadDashboard();
+                    }
+                    break;
+            }
+        }
+        
+        // 顯示頁面
+        function showPage(pageName,event) {
+            // 隱藏所有頁面
+            document.querySelectorAll('.page-content').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // 更新側邊欄
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // 顯示選中頁面
+            document.getElementById(pageName + 'Page').classList.add('active');
+            event.target.classList.add('active');
+            
+            currentPage = pageName;
+            
+            // 載入頁面數據
+            switch(pageName) {
+                case 'dashboard':
+                    loadDashboard();
+                    break;
+                case 'register':
+                    loadRegisteredDevices();
+                    break;
+                case 'devices':
+                    loadDevices();
+                    break;
+                case 'ads':
+                    loadAds();
+                    break;
+                case 'campaigns':
+                    loadCampaigns();
+                    break;
+                case 'push':
+                    loadPushPage();
+                    break;
+                case 'download':
+                    loadDownloadPage();
+                    break;
+            }
+        }
+        
+        // 註冊新設備
+        async function registerDevice() {
+            const deviceId = document.getElementById('newDeviceId').value.trim();
+            const deviceType = document.getElementById('newDeviceType').value;
+            const groupsInput = document.getElementById('newDeviceGroups').value;
+            
+            // 解析群組標籤
+            const groups = groupsInput.split(',').map(g => g.trim()).filter(g => g);
+            
+            if (!deviceId) {
+                alert('請輸入設備 ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + '/devices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_id: deviceId,
+                        device_type: deviceType,
+                        groups: groups.length > 0 ? groups : ['general']
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    addLog(`設備註冊成功: ${deviceId}`, 'success');
+                    alert(`✅ 設備註冊成功！\n\n設備 ID: ${deviceId}\n\n請使用以下命令連接：\npython tests/test_location_client.py ${deviceId} 5`);
+                    
+                    // 重置表單
+                    document.getElementById('registerDeviceForm').reset();
+                    document.getElementById('newDeviceGroups').value = 'general';
+                    
+                    // 刷新設備列表
+                    loadRegisteredDevices();
+                } else {
+                    throw new Error(data.message || '註冊失敗');
+                }
+            } catch (error) {
+                addLog('設備註冊失敗: ' + error.message, 'error');
+                alert('設備註冊失敗: ' + error.message);
+            }
+        }
+        
+        // 載入已註冊設備列表
+        async function loadRegisteredDevices() {
+            try {
+                const response = await fetch(API_BASE + '/devices');
+                const data = await response.json();
+                
+                const devicesList = document.getElementById('registeredDevicesList');
+                
+                if (data.devices && data.devices.length > 0) {
+                    devicesList.innerHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>設備 ID</th>
+                                    <th>設備類型</th>
+                                    <th>群組</th>
+                                    <th>狀態</th>
+                                    <th>註冊時間</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.devices.map(device => `
+                                    <tr>
+                                        <td><strong>${device.device_id}</strong></td>
+                                        <td>${getDeviceTypeLabel(device.device_type)}</td>
+                                        <td>${device.groups ? device.groups.join(', ') : '-'}</td>
+                                        <td>
+                                            <span class="device-status ${device.is_online ? 'status-online' : 'status-offline'}">
+                                                ${device.is_online ? '線上' : '離線'}
+                                            </span>
+                                        </td>
+                                        <td>${device.created_at ? new Date(device.created_at).toLocaleString('zh-TW') : '-'}</td>
+                                        <td>
+                                            <button class="btn btn-primary btn-small" onclick="copyDeviceId('${device.device_id}')">
+                                                複製 ID
+                                            </button>
+                                            <button class="btn btn-danger btn-small" onclick="deleteDevice('${device.device_id}')">
+                                                刪除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                } else {
+                    devicesList.innerHTML = '<p>目前沒有已註冊的設備</p>';
+                }
+            } catch (error) {
+                addLog('載入設備列表失敗: ' + error.message, 'error');
+                document.getElementById('registeredDevicesList').innerHTML = '<p>載入失敗</p>';
+            }
+        }
+        
+        // 複製設備 ID 到剪貼簿
+        async function copyDeviceId(deviceId) {
+            try {
+                await navigator.clipboard.writeText(deviceId);
+                alert('✅ 設備 ID 已複製到剪貼簿！\n\n' + deviceId);
+            } catch (err) {
+                // 降級方案
+                const textArea = document.createElement('textarea');
+                textArea.value = deviceId;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('✅ 設備 ID 已複製到剪貼簿！\n\n' + deviceId);
+            }
+        }
+        
+        // 刪除設備
+        async function deleteDevice(deviceId) {
+            if (!confirm(`確定要刪除設備 ${deviceId} 嗎？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + `/devices/${deviceId}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`設備已刪除: ${deviceId}`, 'info');
+                    loadRegisteredDevices();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('刪除設備失敗: ' + error.message, 'error');
+                alert('刪除失敗: ' + error.message);
+            }
+        }
+        
+        // 獲取設備類型標籤
+        function getDeviceTypeLabel(type) {
+            const labels = {
+                'rooftop_display': '車頂顯示器',
+                'in_car_screen': '車內螢幕',
+                'mobile_app': '手機 App'
+            };
+            return labels[type] || type;
+        }
+        
+        // 載入儀表板
+        async function loadDashboard() {
+            try {
+                // 獲取統計數據
+                const [connectionsRes, adsRes, campaignsRes, healthRes] = await Promise.all([
+                    fetch(API_BASE + '/connections'),
+                    fetch(API_BASE + '/advertisements?status=active'),
+                    fetch(API_BASE + '/campaigns?status=active'),
+                    fetch(window.location.origin + '/health')
+                ]);
+                
+                const connections = await connectionsRes.json();
+                const ads = await adsRes.json();
+                const campaigns = await campaignsRes.json();
+                const health = await healthRes.json();
+                
+                // 更新統計
+                document.getElementById('activeDevices').textContent = connections.active_devices?.length || 0;
+                document.getElementById('totalAds').textContent = ads.total || 0;
+                document.getElementById('activeCampaigns').textContent = campaigns.total || 0;
+                document.getElementById('todayPushes').textContent = connections.stats?.messages_sent || 0;
+                
+                // 更新系統狀態
+                document.getElementById('systemStatus').innerHTML = `
+                    <p>服務狀態: <span style="color: #27ae60;">運行中</span></p>
+                    <p>數據庫狀態: ${health.database}</p>
+                    <p>活動連接數: ${health.active_connections}</p>
+                    <p>服務器時間: ${new Date().toLocaleString('zh-TW')}</p>
+                `;
+            } catch (error) {
+                addLog('載入儀表板失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入設備列表
+        async function loadDevices() {
+            try {
+                const response = await fetch(API_BASE + '/connections');
+                const data = await response.json();
+                
+                const devicesList = document.getElementById('devicesList');
+                
+                if (data.active_devices && data.active_devices.length > 0) {
+                    devicesList.innerHTML = data.active_devices.map(device => `
+                        <div class="device-card">
+                            <div class="device-info">
+                                <h4>${device.device_id}</h4>
+                                <p>連接時間: ${new Date(device.connected_at).toLocaleString('zh-TW')}</p>
+                                <p>最後活動: ${new Date(device.last_activity).toLocaleString('zh-TW')}</p>
+                            </div>
+                            <div>
+                                <span class="device-status status-online">線上</span>
+                                <button class="btn btn-primary btn-small" onclick="pushToDevice('${device.device_id}')">
+                                    推送
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    devicesList.innerHTML = '<p>目前沒有線上設備</p>';
+                }
+            } catch (error) {
+                addLog('載入設備列表失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入廣告列表
+        async function loadAds() {
+            try {
+                const response = await fetch(API_BASE + '/advertisements?status=active');
+                const data = await response.json();
+                
+                const adsList = document.getElementById('adsList');
+                
+                if (data.advertisements && data.advertisements.length > 0) {
+                    adsList.innerHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名稱</th>
+                                    <th>文件名</th>
+                                    <th>大小</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.advertisements.map(ad => `
+                                    <tr>
+                                        <td>${ad.advertisement_id}</td>
+                                        <td>${ad.name}</td>
+                                        <td>${ad.video_filename || '-'}</td>
+                                        <td>${ad.file_size ? formatFileSize(ad.file_size) : '-'}</td>
+                                        <td>
+                                            <button class="btn btn-danger btn-small" onclick="deleteAd('${ad.advertisement_id}')">
+                                                刪除
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                } else {
+                    adsList.innerHTML = '<p>目前沒有廣告</p>';
+                }
+            } catch (error) {
+                addLog('載入廣告列表失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入活動列表
+        async function loadCampaigns() {
+            try {
+                const response = await fetch(API_BASE + '/campaigns?status=active');
+                const data = await response.json();
+                
+                const campaignsList = document.getElementById('campaignsList');
+                
+                if (data.campaigns && data.campaigns.length > 0) {
+                    campaignsList.innerHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名稱</th>
+                                    <th>廣告</th>
+                                    <th>優先級</th>
+                                    <th>目標群組</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.campaigns.map(campaign => `
+                                    <tr>
+                                        <td>${campaign.campaign_id}</td>
+                                        <td>${campaign.name}</td>
+                                        <td>${campaign.advertisement_name || campaign.advertisement_id}</td>
+                                        <td>${campaign.priority}</td>
+                                        <td>${campaign.target_groups.join(', ')}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                } else {
+                    campaignsList.innerHTML = '<p>目前沒有活動</p>';
+                }
+            } catch (error) {
+                addLog('載入活動列表失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入推送頁面
+        async function loadPushPage() {
+            try {
+                // 載入設備列表
+                const devicesRes = await fetch(API_BASE + '/connections');
+                const devicesData = await devicesRes.json();
+                
+                const deviceSelector = document.getElementById('deviceSelector');
+                if (devicesData.active_devices && devicesData.active_devices.length > 0) {
+                    deviceSelector.innerHTML = devicesData.active_devices.map(device => `
+                        <label>
+                            <input type="checkbox" name="devices" value="${device.device_id}">
+                            ${device.device_id}
+                        </label><br>
+                    `).join('');
+                } else {
+                    deviceSelector.innerHTML = '<p>沒有線上設備</p>';
+                }
+                
+                // 載入廣告列表
+                const adsRes = await fetch(API_BASE + '/advertisements?status=active');
+                const adsData = await adsRes.json();
+                
+                const adSelector = document.getElementById('adSelector');
+                adSelector.innerHTML = '<option value="">選擇廣告...</option>' +
+                    adsData.advertisements.map(ad => 
+                        `<option value="${ad.advertisement_id}">${ad.name} (${ad.video_filename})</option>`
+                    ).join('');
+            } catch (error) {
+                addLog('載入推送頁面失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 載入下載頁面
+        async function loadDownloadPage() {
+            try {
+                // 載入設備列表
+                const devicesRes = await fetch(API_BASE + '/connections');
+                const devicesData = await devicesRes.json();
+                
+                const deviceSelector = document.getElementById('downloadDeviceSelector');
+                if (devicesData.active_devices && devicesData.active_devices.length > 0) {
+                    deviceSelector.innerHTML = devicesData.active_devices.map(device => `
+                        <label>
+                            <input type="checkbox" name="downloadDevices" value="${device.device_id}">
+                            ${device.device_id}
+                        </label><br>
+                    `).join('');
+                } else {
+                    deviceSelector.innerHTML = '<p>沒有線上設備</p>';
+                }
+                
+                // 載入有影片的廣告列表
+                const adsRes = await fetch(API_BASE + '/advertisements/available?with_files=true');
+                const adsData = await adsRes.json();
+                
+                const adSelector = document.getElementById('downloadAdSelector');
+                adSelector.innerHTML = '<option value="">選擇廣告...</option>' +
+                    adsData.advertisements.map(ad => 
+                        `<option value="${ad.advertisement_id}">${ad.name} (${formatFileSize(ad.file_size)})</option>`
+                    ).join('');
+            } catch (error) {
+                addLog('載入下載頁面失敗: ' + error.message, 'error');
+            }
+        }
+        
+        // 設置事件監聽器
+        function setupEventListeners() {
+            // 設備註冊表單
+            document.getElementById('registerDeviceForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await registerDevice();
+            });
+            
+            // 上傳表單
+            document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await uploadVideo();
+            });
+            
+            // 推送表單
+            document.getElementById('pushForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await pushAdvertisement();
+            });
+            
+            // 下載表單
+            document.getElementById('downloadForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await pushDownload();
+            });
+            
+            // 創建廣告表單
+            document.getElementById('createAdForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                await createAdvertisement();
+            });
+        }
+        
+        // 分片上傳影片
+        async function uploadVideo() {
+            const fileInput = document.getElementById('videoFile');
+            const file = fileInput.files[0];
+            const adName = document.getElementById('adName').value;
+            const adId = document.getElementById('adId').value;
+            
+            if (!file || !adName) {
+                alert('請選擇文件並輸入廣告名稱');
+                return;
+            }
+            
+            const chunkSize = 10 * 1024 * 1024; // 10MB
+            const totalChunks = Math.ceil(file.size / chunkSize);
+            
+            document.getElementById('uploadProgress').style.display = 'block';
+            
+            try {
+                // 1. 初始化分片上傳
+                const initRes = await fetch(API_BASE + '/videos/chunked/init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        total_size: file.size,
+                        total_chunks: totalChunks,
+                        name: adName,
+                        advertisement_id: adId || undefined
+                    })
+                });
+                
+                const initData = await initRes.json();
+                if (initData.status !== 'success') {
+                    throw new Error(initData.message);
+                }
+                
+                const uploadId = initData.upload_id;
+                
+                // 2. 上傳分片
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * chunkSize;
+                    const end = Math.min(start + chunkSize, file.size);
+                    const chunk = file.slice(start, end);
+                    
+                    const formData = new FormData();
+                    formData.append('upload_id', uploadId);
+                    formData.append('chunk_number', i.toString());
+                    formData.append('chunk', chunk);
+                    
+                    const chunkRes = await fetch(API_BASE + '/videos/chunked/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const chunkData = await chunkRes.json();
+                    if (chunkData.status !== 'success') {
+                        throw new Error(chunkData.message);
+                    }
+                    
+                    const progress = ((i + 1) / totalChunks) * 100;
+                    updateProgress(progress, `上傳中... ${i + 1}/${totalChunks}`);
+                }
+                
+                // 3. 完成上傳
+                const completeRes = await fetch(API_BASE + '/videos/chunked/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ upload_id: uploadId })
+                });
+                
+                const completeData = await completeRes.json();
+                if (completeData.status !== 'success') {
+                    throw new Error(completeData.message);
+                }
+                
+                addLog(`影片上傳成功: ${completeData.video_info.filename}`, 'success');
+                alert('影片上傳成功！');
+                
+                // 重置表單
+                document.getElementById('uploadForm').reset();
+                document.getElementById('uploadProgress').style.display = 'none';
+                
+            } catch (error) {
+                addLog('影片上傳失敗: ' + error.message, 'error');
+                alert('上傳失敗: ' + error.message);
+            }
+        }
+        
+        // 推送廣告
+        async function pushAdvertisement() {
+            const selectedDevices = Array.from(document.querySelectorAll('input[name="devices"]:checked'))
+                .map(cb => cb.value);
+            const adId = document.getElementById('adSelector').value;
+            
+            if (selectedDevices.length === 0 || !adId) {
+                alert('請選擇設備和廣告');
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + '/override', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_device_ids: selectedDevices,
+                        advertisement_id: adId
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`推送成功: ${data.results.sent.length} 個設備`, 'success');
+                    alert('推送成功！');
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('推送失敗: ' + error.message, 'error');
+                alert('推送失敗: ' + error.message);
+            }
+        }
+        
+        // 推送下載
+        async function pushDownload() {
+            const selectedDevices = Array.from(document.querySelectorAll('input[name="downloadDevices"]:checked'))
+                .map(cb => cb.value);
+            const adId = document.getElementById('downloadAdSelector').value;
+            
+            if (selectedDevices.length === 0 || !adId) {
+                alert('請選擇設備和廣告');
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + '/push/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_device_ids: selectedDevices,
+                        advertisement_id: adId,
+                        priority: 'normal',
+                        download_mode: 'chunked'
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`下載推送成功: ${data.results.sent.length} 個設備`, 'success');
+                    alert('下載推送成功！');
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('下載推送失敗: ' + error.message, 'error');
+                alert('下載推送失敗: ' + error.message);
+            }
+        }
+        
+        // 創建廣告
+        async function createAdvertisement() {
+            const adId = document.getElementById('newAdId').value;
+            const adName = document.getElementById('newAdName').value;
+            const adType = document.getElementById('newAdType').value;
+            const adPriority = document.getElementById('newAdPriority').value;
+            
+            try {
+                const response = await fetch(API_BASE + '/advertisements', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        advertisement_id: adId || undefined,
+                        name: adName,
+                        type: adType,
+                        priority: parseInt(adPriority),
+                        target_groups: ['general']
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`廣告創建成功: ${data.advertisement_id}`, 'success');
+                    alert('廣告創建成功！');
+                    closeModal('createAdModal');
+                    loadAds();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('創建廣告失敗: ' + error.message, 'error');
+                alert('創建失敗: ' + error.message);
+            }
+        }
+        
+        // 刪除廣告
+        async function deleteAd(adId) {
+            if (!confirm(`確定要刪除廣告 ${adId} 嗎？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + `/advertisements/${adId}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`廣告已刪除: ${adId}`, 'info');
+                    loadAds();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('刪除廣告失敗: ' + error.message, 'error');
+                alert('刪除失敗: ' + error.message);
+            }
+        }
+        
+        // 刷新設備列表
+        function refreshDevices() {
+            loadDevices();
+            addLog('設備列表已刷新', 'info');
+        }
+        
+        // 推送到單個設備
+        async function pushToDevice(deviceId) {
+            const adId = prompt('請輸入要推送的廣告ID:');
+            if (!adId) return;
+            
+            try {
+                const response = await fetch(API_BASE + '/override', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_device_ids: [deviceId],
+                        advertisement_id: adId
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addLog(`推送成功到設備: ${deviceId}`, 'success');
+                    alert('推送成功！');
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                addLog('推送失敗: ' + error.message, 'error');
+                alert('推送失敗: ' + error.message);
+            }
+        }
+        
+        // 更新進度條
+        function updateProgress(percent, text) {
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('progressText').textContent = text;
+        }
+        
+        // 添加日誌
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const time = new Date().toLocaleTimeString('zh-TW');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // 清空日誌
+        function clearLogs() {
+            const logContainer = document.getElementById('logContainer');
+            logContainer.innerHTML = '<div class="log-entry"><span class="log-time">[系統]</span> 日誌已清空</div>';
+        }
+        
+        // 顯示彈窗
+        function showCreateAdModal() {
+            document.getElementById('createAdModal').style.display = 'block';
+        }
+        
+        // 關閉彈窗
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+        
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // 點擊彈窗外部關閉
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
