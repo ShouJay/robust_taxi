@@ -23,10 +23,26 @@
             color: white;
             padding: 1rem 2rem;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
         }
 
         .navbar h1 {
             font-size: 1.5rem;
+            font-weight: 500;
+        }
+
+        .navbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.95rem;
+        }
+
+        .navbar-actions span {
+            color: #ecf0f1;
             font-weight: 500;
         }
 
@@ -372,6 +388,10 @@
     <!-- 頂部導航欄 -->
     <nav class="navbar">
         <h1>🚕 智能計程車廣告管理系統</h1>
+        <div class="navbar-actions">
+            <span id="loginUserEmail">管理員</span>
+            <button class="btn btn-danger btn-small" onclick="logout()">登出</button>
+        </div>
     </nav>
 
     <!-- 主容器 -->
@@ -389,9 +409,6 @@
             </button>
             <button class="sidebar-item" onclick="showPage('ads', event)">
                 <i>🎬</i> 廣告管理
-            </button>
-            <button class="sidebar-item" onclick="showPage('upload', event)">
-                <i>⬆️</i> 影片上傳
             </button>
             <button class="sidebar-item" onclick="showPage('campaigns', event)">
                 <i>📍</i> 活動管理
@@ -530,34 +547,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 </div>
             </div>
 
-            <!-- 影片上傳頁面 -->
-            <div id="uploadPage" class="page-content">
-                <h2>影片上傳</h2>
-                <div class="card">
-                    <div class="card-title">分片上傳影片</div>
-                    <form id="uploadForm">
-                        <div class="form-group">
-                            <label class="form-label">選擇影片文件</label>
-                            <input type="file" id="videoFile" class="form-control" accept="video/*" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">廣告名稱</label>
-                            <input type="text" id="adName" class="form-control" placeholder="輸入廣告名稱" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">廣告ID（選填）</label>
-                            <input type="text" id="adId" class="form-control" placeholder="自動生成">
-                        </div>
-                        <button type="submit" class="btn btn-primary">開始上傳</button>
-                    </form>
-                    <div id="uploadProgress" style="display: none; margin-top: 1rem;">
-                        <div class="progress">
-                            <div class="progress-bar" id="progressBar" style="width: 0%"></div>
-                        </div>
-                        <p id="progressText">準備上傳...</p>
-                    </div>
-                </div>
-            </div>
 
             <!-- 活動管理頁面 -->
             <div id="campaignsPage" class="page-content">
@@ -667,7 +656,22 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     <label class="form-label">優先級</label>
                     <input type="number" id="newAdPriority" class="form-control" min="1" max="10" value="5">
                 </div>
+                <div class="form-group">
+                    <label class="form-label">目標群組</label>
+                    <input type="text" id="newAdGroups" class="form-control" placeholder="輸入標籤，用逗號分隔" value="general">
+                    <small style="color: #7f8c8d;">若有多個群組請以逗號分隔，預設為 general</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">影片文件 *</label>
+                    <input type="file" id="newAdFile" class="form-control" accept="video/*" required>
+                </div>
                 <button type="submit" class="btn btn-success">創建廣告</button>
+                <div id="uploadProgress" style="display: none; margin-top: 1rem;">
+                    <div class="progress">
+                        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+                    </div>
+                    <p id="progressText">準備上傳...</p>
+                </div>
             </form>
         </div>
     </div>
@@ -757,6 +761,12 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
     
     <script>
 
+        const LOGIN_PAGE = 'login.html';
+
+        if (localStorage.getItem('admin_logged_in') !== 'true') {
+            window.location.href = LOGIN_PAGE;
+        }
+
         // Socket.IO 連接
         let socket = null;
         // API 基礎路徑
@@ -770,6 +780,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             initWebSocket();
             loadDashboard();
             setupEventListeners();
+            setLoginUserInfo();
         });
 
         // socket = io(SOCKETIO_URL, {
@@ -1307,12 +1318,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 await registerDevice();
             });
             
-            // 上傳表單
-            document.getElementById('uploadForm').addEventListener('submit', async function(e) {
-                e.preventDefault();
-                await uploadVideo();
-            });
-            
             // 推送表單
             document.getElementById('pushForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
@@ -1448,6 +1453,20 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
 
         function centerMapToInputs() {
             updateMapFromInputs();
+        }
+
+        function setLoginUserInfo() {
+            const email = localStorage.getItem('admin_login_email') || '管理員';
+            const emailSpan = document.getElementById('loginUserEmail');
+            if (emailSpan) {
+                emailSpan.textContent = email;
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('admin_logged_in');
+            localStorage.removeItem('admin_login_email');
+            window.location.href = LOGIN_PAGE;
         }
 
         // 創建活動
@@ -1589,94 +1608,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             }
         }
         
-        // 分片上傳影片
-        async function uploadVideo() {
-            const fileInput = document.getElementById('videoFile');
-            const file = fileInput.files[0];
-            const adName = document.getElementById('adName').value;
-            const adId = document.getElementById('adId').value;
-            
-            if (!file || !adName) {
-                alert('請選擇文件並輸入廣告名稱');
-                return;
-            }
-            
-            const chunkSize = 10 * 1024 * 1024; // 10MB
-            const totalChunks = Math.ceil(file.size / chunkSize);
-            
-            document.getElementById('uploadProgress').style.display = 'block';
-            
-            try {
-                // 1. 初始化分片上傳
-                const initRes = await fetch(API_BASE + '/videos/chunked/init', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        filename: file.name,
-                        total_size: file.size,
-                        total_chunks: totalChunks,
-                        name: adName,
-                        advertisement_id: adId || undefined
-                    })
-                });
-                
-                const initData = await initRes.json();
-                if (initData.status !== 'success') {
-                    throw new Error(initData.message);
-                }
-                
-                const uploadId = initData.upload_id;
-                
-                // 2. 上傳分片
-                for (let i = 0; i < totalChunks; i++) {
-                    const start = i * chunkSize;
-                    const end = Math.min(start + chunkSize, file.size);
-                    const chunk = file.slice(start, end);
-                    
-                    const formData = new FormData();
-                    formData.append('upload_id', uploadId);
-                    formData.append('chunk_number', i.toString());
-                    formData.append('chunk', chunk);
-                    
-                    const chunkRes = await fetch(API_BASE + '/videos/chunked/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const chunkData = await chunkRes.json();
-                    if (chunkData.status !== 'success') {
-                        throw new Error(chunkData.message);
-                    }
-                    
-                    const progress = ((i + 1) / totalChunks) * 100;
-                    updateProgress(progress, `上傳中... ${i + 1}/${totalChunks}`);
-                }
-                
-                // 3. 完成上傳
-                const completeRes = await fetch(API_BASE + '/videos/chunked/complete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ upload_id: uploadId })
-                });
-                
-                const completeData = await completeRes.json();
-                if (completeData.status !== 'success') {
-                    throw new Error(completeData.message);
-                }
-                
-                addLog(`影片上傳成功: ${completeData.video_info.filename}`, 'success');
-                alert('影片上傳成功！');
-                
-                // 重置表單
-                document.getElementById('uploadForm').reset();
-                document.getElementById('uploadProgress').style.display = 'none';
-                
-            } catch (error) {
-                addLog('影片上傳失敗: ' + error.message, 'error');
-                alert('上傳失敗: ' + error.message);
-            }
-        }
-        
         // 推送廣告
         async function pushAdvertisement() {
             const selectedDevices = Array.from(document.querySelectorAll('input[name="devices"]:checked'))
@@ -1747,38 +1678,140 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             }
         }
         
-        // 創建廣告
+        // 創建廣告（含影片上傳）
         async function createAdvertisement() {
-            const adId = document.getElementById('newAdId').value;
-            const adName = document.getElementById('newAdName').value;
+            const adIdInput = document.getElementById('newAdId').value.trim();
+            const adName = document.getElementById('newAdName').value.trim();
             const adType = document.getElementById('newAdType').value;
-            const adPriority = document.getElementById('newAdPriority').value;
+            const adPriority = parseInt(document.getElementById('newAdPriority').value, 10) || 5;
+            const groupsInput = document.getElementById('newAdGroups').value;
+            const targetGroups = groupsInput
+                .split(',')
+                .map(g => g.trim())
+                .filter(g => g);
+            const fileInput = document.getElementById('newAdFile');
+            const file = fileInput.files[0];
+            const progressContainer = document.getElementById('uploadProgress');
+            
+            if (!adName) {
+                alert('請輸入廣告名稱');
+                return;
+            }
+            
+            if (!file) {
+                alert('請選擇要上傳的影片檔案');
+                return;
+            }
+            
+            const defaultChunkSize = 10 * 1024 * 1024; // 10MB
+            const totalChunks = Math.max(1, Math.ceil(file.size / defaultChunkSize));
+            
+            if (progressContainer) {
+                progressContainer.style.display = 'block';
+            }
+            updateProgress(0, '準備上傳...');
             
             try {
-                const response = await fetch(API_BASE + '/advertisements', {
+                // Step 1. 初始化分片上傳
+                const initPayload = {
+                    filename: file.name,
+                    total_size: file.size,
+                    total_chunks: totalChunks,
+                    name: adName
+                };
+                if (adIdInput) {
+                    initPayload.advertisement_id = adIdInput;
+                }
+                
+                const initRes = await fetch(API_BASE + '/videos/chunked/init', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(initPayload)
+                });
+                const initData = await initRes.json();
+                if (initData.status !== 'success') {
+                    throw new Error(initData.message || '初始化上傳失敗');
+                }
+                
+                const uploadId = initData.upload_id;
+                const serverChunkSize = initData.chunk_size || defaultChunkSize;
+                const effectiveChunkSize = serverChunkSize > 0 ? serverChunkSize : defaultChunkSize;
+                const effectiveTotalChunks = Math.max(1, Math.ceil(file.size / effectiveChunkSize));
+                
+                // Step 2. 上傳所有分片
+                for (let i = 0; i < effectiveTotalChunks; i++) {
+                    const start = i * effectiveChunkSize;
+                    const end = Math.min(start + effectiveChunkSize, file.size);
+                    const chunk = file.slice(start, end);
+                    
+                    const formData = new FormData();
+                    formData.append('upload_id', uploadId);
+                    formData.append('chunk_number', i.toString());
+                    formData.append('chunk', chunk);
+                    
+                    const chunkRes = await fetch(API_BASE + '/videos/chunked/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const chunkData = await chunkRes.json();
+                    if (chunkData.status !== 'success') {
+                        throw new Error(chunkData.message || `第 ${i + 1} 個分片上傳失敗`);
+                    }
+                    
+                    const progress = Math.round(((i + 1) / effectiveTotalChunks) * 100);
+                    updateProgress(progress, `上傳中... ${i + 1}/${effectiveTotalChunks}`);
+                }
+                
+                // Step 3. 通知伺服器合併分片
+                const completeRes = await fetch(API_BASE + '/videos/chunked/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ upload_id: uploadId })
+                });
+                const completeData = await completeRes.json();
+                if (completeData.status !== 'success') {
+                    throw new Error(completeData.message || '合併影片失敗');
+                }
+                
+                const createdAdId = completeData.video_info.advertisement_id;
+                
+                // Step 4. 更新廣告屬性（類型、優先級、群組等）
+                const updateRes = await fetch(API_BASE + `/advertisements/${createdAdId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        advertisement_id: adId || undefined,
                         name: adName,
                         type: adType,
-                        priority: parseInt(adPriority),
-                        target_groups: ['general']
+                        priority: adPriority,
+                        target_groups: targetGroups.length > 0 ? targetGroups : ['general'],
+                        status: 'active'
                     })
                 });
-                
-                const data = await response.json();
-                if (data.status === 'success') {
-                    addLog(`廣告創建成功: ${data.advertisement_id}`, 'success');
-                    alert('廣告創建成功！');
-                    closeModal('createAdModal');
-                    loadAds();
-                } else {
-                    throw new Error(data.message);
+                const updateData = await updateRes.json();
+                if (updateRes.status >= 400 || updateData.status !== 'success') {
+                    throw new Error(updateData.message || '設定廣告屬性失敗');
                 }
+                
+                addLog(`廣告創建成功: ${createdAdId}`, 'success');
+                alert('廣告與影片已成功建立！');
+                
+                document.getElementById('createAdForm').reset();
+                document.getElementById('newAdGroups').value = 'general';
+                if (progressContainer) {
+                    progressContainer.style.display = 'none';
+                }
+                updateProgress(0, '準備上傳...');
+                
+                closeModal('createAdModal');
+                loadAds();
+                loadDownloadPage();
             } catch (error) {
                 addLog('創建廣告失敗: ' + error.message, 'error');
-                alert('創建失敗: ' + error.message);
+                alert('創建廣告失敗: ' + error.message);
+                if (progressContainer) {
+                    progressContainer.style.display = 'none';
+                }
+                updateProgress(0, '準備上傳...');
             }
         }
         
@@ -1842,8 +1875,14 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         
         // 更新進度條
         function updateProgress(percent, text) {
-            document.getElementById('progressBar').style.width = percent + '%';
-            document.getElementById('progressText').textContent = text;
+            const bar = document.getElementById('progressBar');
+            const label = document.getElementById('progressText');
+            if (bar) {
+                bar.style.width = percent + '%';
+            }
+            if (label) {
+                label.textContent = text;
+            }
         }
         
         // 添加日誌
@@ -1865,6 +1904,19 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         
         // 顯示彈窗
         function showCreateAdModal() {
+            const form = document.getElementById('createAdForm');
+            if (form) {
+                form.reset();
+            }
+            const groupsInput = document.getElementById('newAdGroups');
+            if (groupsInput) {
+                groupsInput.value = 'general';
+            }
+            const progressContainer = document.getElementById('uploadProgress');
+            if (progressContainer) {
+                progressContainer.style.display = 'none';
+            }
+            updateProgress(0, '準備上傳...');
             document.getElementById('createAdModal').style.display = 'block';
         }
         

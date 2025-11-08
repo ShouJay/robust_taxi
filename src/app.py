@@ -987,6 +987,17 @@ logger.info("前端管理 API 已註冊 (/api/v1/admin)")
 # 靜態檔案服務 - 管理介面
 # ============================================================================
 
+@app.route('/login')
+@app.route('/login.html')
+def login_page():
+    """提供登入頁面"""
+    try:
+        with open('login.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "登入頁面不存在", 404
+
+
 @app.route('/admin')
 @app.route('/admin_dashboard.html')
 def admin_dashboard():
