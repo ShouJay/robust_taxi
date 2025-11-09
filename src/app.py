@@ -84,6 +84,9 @@ connection_stats = {
     "location_updates": 0
 }
 
+# 設備 -> 當前活動狀態快取
+device_campaign_state = {}
+
 
 def get_active_devices():
     """獲取所有活動設備列表"""
@@ -235,79 +238,65 @@ def handle_location_update(data):
         
         # 執行廣告決策
         ad_info = ad_service.decide_ad(device_id, longitude, latitude)
-        
-        if ad_info and ad_info.get('video_filename'):
-            # 自動下載邏輯：檢查活動中的所有廣告是否已下載
-            advertisement_ids = ad_info.get('advertisement_ids', [])
-            campaign_id = ad_info.get('campaign_id')
-            
-            if advertisement_ids and len(advertisement_ids) > 0:
-                # 推送活動中所有廣告的下載命令（如果設備沒有，會自動下載）
-                import os
-                for ad_id in advertisement_ids:
-                    advertisement = db.advertisements.find_one({"_id": ad_id})
-                    if advertisement:
-                        video_path = advertisement.get('video_path')
-                        # 如果廣告有影片文件，推送下載命令
-                        if video_path and os.path.exists(video_path):
-                            file_size = os.path.getsize(video_path)
-                            chunk_size = 10 * 1024 * 1024  # 10MB
-                            total_chunks = max(1, (file_size + chunk_size - 1) // chunk_size)
-                            
-                            download_command = {
-                                "command": "DOWNLOAD_VIDEO",
-                                "advertisement_id": ad_id,
-                                "advertisement_name": advertisement.get('name', ''),
-                                "video_filename": advertisement.get('video_filename', ''),
-                                "file_size": file_size,
-                                "download_mode": "chunked",
-                                "priority": "normal",
-                                "trigger": "auto_location_based",  # 標記為自動觸發下載
-                                "campaign_id": campaign_id,
-                                "chunk_size": chunk_size,
-                                "total_chunks": total_chunks,
-                                "download_url": f"/api/v1/device/videos/{ad_id}/chunk",
-                                "download_info_url": f"/api/v1/device/videos/{ad_id}/download",
-                                "timestamp": datetime.now().isoformat()
-                            }
-                            
-                            # 推送下載命令（設備會檢查是否已下載，如果已下載則跳過）
-                            emit('download_video', download_command)
-                            logger.info(f"已推送自動下載命令到 {device_id}: {ad_id} (活動: {campaign_id})")
-            
-            # 構建推送載荷
-            payload = {
-                "command": "PLAY_VIDEO",
-                "video_filename": ad_info['video_filename'],
-                "advertisement_id": ad_info.get('advertisement_id'),
-                "advertisement_name": ad_info.get('advertisement_name', ''),
-                "trigger": "location_based",  # 標記觸發原因
-                "device_id": device_id,
-                "campaign_id": campaign_id,
-                "location": {
-                    "longitude": longitude,
-                    "latitude": latitude
-                },
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            # 實時推送廣告到設備
-            emit('play_ad', payload)
-            connection_stats['messages_sent'] += 1
-            connection_stats['location_updates'] += 1
-            
-            logger.info(f"已推送廣告到 {device_id}: {ad_info['video_filename']}")
-            
-            # 發送確認消息
+        matching_campaign_id = ad_info.get('campaign_id') if ad_info else None
+        current_campaign_id = device_campaign_state.get(device_id)
+
+        connection_stats['location_updates'] += 1
+
+        if matching_campaign_id == current_campaign_id:
+            logger.info(f"[狀態不變] {device_id} 仍在 {current_campaign_id}。不推送。")
             emit('location_ack', {
-                'message': '位置更新已處理，廣告已推送',
-                'video_filename': ad_info['video_filename'],
-                'advertisement_ids': advertisement_ids,
+                'message': '位置更新已處理，狀態未改變',
+                'campaign_id': current_campaign_id,
+                'timestamp': datetime.now().isoformat()
+            })
+            return
+
+        logger.warning(f"[狀態改變] {device_id}: {current_campaign_id} -> {matching_campaign_id}")
+        device_campaign_state[device_id] = matching_campaign_id
+
+        if matching_campaign_id is not None and ad_info:
+            advertisement_ids = ad_info.get('advertisement_ids', [])
+            campaign_playlist = []
+
+            for ad_id in advertisement_ids:
+                advertisement = db.advertisements.find_one({"_id": ad_id})
+                if advertisement:
+                    campaign_playlist.append({
+                        "videoFilename": advertisement.get('video_filename'),
+                        "advertisementId": ad_id,
+                        "advertisementName": advertisement.get('name')
+                    })
+                else:
+                    logger.warning(f"未找到廣告 {ad_id}，無法加入播放列表")
+
+            logger.info(f"推送 [START_CAMPAIGN] 到 {device_id} (活動: {matching_campaign_id})")
+
+            emit('start_campaign_playback', {
+                "command": "START_CAMPAIGN_PLAYBACK",
+                "campaign_id": matching_campaign_id,
+                "playlist": campaign_playlist,
+                "timestamp": datetime.now().isoformat()
+            })
+            connection_stats['messages_sent'] += 1
+
+            emit('location_ack', {
+                'message': '位置更新已處理，活動已開始',
+                'campaign_id': matching_campaign_id,
+                'playlist_size': len(campaign_playlist),
                 'timestamp': datetime.now().isoformat()
             })
         else:
+            logger.info(f"推送 [REVERT_TO_LOCAL] 到 {device_id}")
+            emit('revert_to_local_playlist', {
+                "command": "REVERT_TO_LOCAL_PLAYLIST",
+                "timestamp": datetime.now().isoformat()
+            })
+            connection_stats['messages_sent'] += 1
+
             emit('location_ack', {
-                'message': '位置更新已處理，無匹配廣告',
+                'message': '位置更新已處理，恢復為本地播放列表',
+                'campaign_id': None,
                 'timestamp': datetime.now().isoformat()
             })
         
@@ -316,6 +305,23 @@ def handle_location_update(data):
         emit('location_error', {
             'error': '處理位置更新時發生錯誤'
         })
+
+
+@socketio.on('playback_error')
+def handle_playback_error(data):
+    """處理前端回報的播放錯誤"""
+    sid = request.sid
+    device_id = active_connections.get(sid, {}).get('device_id', 'Unknown')
+
+    error_msg = data.get('error', 'Unknown error')
+    campaign_id = data.get('campaign_id')
+    video_filename = data.get('video_filename')
+
+    logger.error(f"🚨 [前端播放錯誤] 設備: {device_id}")
+    logger.error(f"   活動: {campaign_id}, 影片: {video_filename}")
+    logger.error(f"   錯誤訊息: {error_msg}")
+
+    emit('error_ack', {'message': '錯誤已收到'})
 
 
 @socketio.on('disconnect')
@@ -849,120 +855,6 @@ def device_heartbeat():
         ))
 
 
-@app.route('/api/v1/admin/override', methods=['POST'])
-def admin_override():
-    """
-    管理員推送覆蓋命令端點
-    """
-    try:
-        # 1. 解析請求數據
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                "status": "error",
-                "message": "請求體不能為空"
-            }), 400
-        
-        target_device_ids = data.get('target_device_ids', [])
-        advertisement_id = data.get('advertisement_id')
-        
-        # 驗證必要欄位
-        if not target_device_ids or not advertisement_id:
-            return jsonify({
-                "status": "error",
-                "message": "缺少必要欄位: target_device_ids 和 advertisement_id"
-            }), 400
-        
-        if not isinstance(target_device_ids, list):
-            return jsonify({
-                "status": "error",
-                "message": "target_device_ids 必須是陣列"
-            }), 400
-        
-        logger.info(f"收到管理員推送請求 - 目標設備: {target_device_ids}, 廣告: {advertisement_id}")
-        
-        # 2. 查找廣告信息
-        advertisement = db.advertisements.find_one({"_id": advertisement_id})
-        
-        if not advertisement:
-            return jsonify({
-                "status": "error",
-                "message": f"找不到廣告: {advertisement_id}"
-            }), 404
-        
-        video_filename = advertisement.get('video_filename')
-        
-        if not video_filename:
-            return jsonify({
-                "status": "error",
-                "message": "廣告缺少 video_filename 欄位"
-            }), 500
-        
-        # 3. 構建推送載荷
-        payload = {
-            "command": "PLAY_VIDEO",
-            "video_filename": video_filename,
-            "advertisement_id": advertisement_id,
-            "advertisement_name": advertisement.get('name', ''),
-            "trigger": "admin_override",
-            "priority": "override",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        # 4. 向每個目標設備推送命令
-        sent_to = []
-        offline_devices = []
-        
-        for device_id in target_device_ids:
-            sid = get_device_sid(device_id)
-            
-            if sid:
-                try:
-                    # 發送覆蓋命令到特定客戶端
-                    socketio.emit('play_ad', payload, room=sid)
-                    sent_to.append(device_id)
-                    connection_stats['messages_sent'] += 1
-                    logger.info(f"推送命令已發送到: {device_id} (SID: {sid})")
-                except Exception as e:
-                    logger.error(f"發送到 {device_id} 時出錯: {e}")
-                    offline_devices.append(device_id)
-            else:
-                offline_devices.append(device_id)
-                logger.warning(f"設備離線或未連接: {device_id}")
-        
-        # 5. 構建並返回響應
-        response = {
-            "status": "success",
-            "advertisement": {
-                "id": advertisement_id,
-                "name": advertisement.get('name', ''),
-                "video_filename": video_filename,
-                "type": advertisement.get('type', '')
-            },
-            "results": {
-                "sent": sent_to,
-                "offline": offline_devices
-            },
-            "summary": {
-                "total_targets": len(target_device_ids),
-                "sent_count": len(sent_to),
-                "offline_count": len(offline_devices)
-            },
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        return jsonify(response), 200
-        
-    except Exception as e:
-        logger.error(f"處理管理員推送請求時出錯: {e}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": "內部伺服器錯誤",
-            "detail": str(e)
-        }), 500
-
-
 # ============================================================================
 # 註冊前端管理 API Blueprint
 # ============================================================================
@@ -973,7 +865,8 @@ admin_blueprint = init_admin_api(
     socketio=socketio,
     device_to_sid=device_to_sid,
     connection_stats=connection_stats,
-    active_connections=active_connections
+    active_connections=active_connections,
+    device_campaign_state=device_campaign_state
 )
 # app.register_blueprint(admin_blueprint)
 

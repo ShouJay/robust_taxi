@@ -51,7 +51,14 @@ def cleanup_chunks(upload_id):
         logger.warning(f"清理分片文件失敗: {e}")
 
 
-def init_admin_api(db, socketio, device_to_sid, connection_stats, active_connections):
+def init_admin_api(
+    db,
+    socketio,
+    device_to_sid,
+    connection_stats,
+    active_connections,
+    device_campaign_state=None
+):
     """
     初始化管理 API
     
@@ -638,6 +645,71 @@ def init_admin_api(db, socketio, device_to_sid, connection_stats, active_connect
             return jsonify({
                 "status": "error",
                 "message": "獲取活動詳情失敗"
+            }), 500
+    
+    
+    @admin_api.route('/campaigns/<campaign_id>', methods=['DELETE'])
+    def delete_campaign(campaign_id):
+        """
+        刪除活動
+        
+        前端用途：
+        - 活動管理頁面
+        - 刪除不需要的活動
+        """
+        try:
+            campaign = db.campaigns.find_one({"_id": campaign_id})
+            
+            if not campaign:
+                return jsonify({
+                    "status": "error",
+                    "message": f"活動 {campaign_id} 不存在"
+                }), 404
+            
+            result = db.campaigns.delete_one({"_id": campaign_id})
+            
+            if result.deleted_count == 0:
+                return jsonify({
+                    "status": "error",
+                    "message": f"刪除活動 {campaign_id} 失敗"
+                }), 500
+            
+            affected_devices = []
+            
+            if device_campaign_state is not None:
+                affected_devices = [
+                    device_id for device_id, current_campaign in device_campaign_state.items()
+                    if current_campaign == campaign_id
+                ]
+                
+                for device_id in affected_devices:
+                    device_campaign_state[device_id] = None
+                    sid = device_to_sid.get(device_id)
+                    
+                    if sid:
+                        try:
+                            socketio.emit('revert_to_local_playlist', {
+                                "command": "REVERT_TO_LOCAL_PLAYLIST",
+                                "reason": "campaign_deleted",
+                                "campaign_id": campaign_id,
+                                "timestamp": datetime.now().isoformat()
+                            }, room=sid)
+                        except Exception as emit_error:
+                            logger.error(f"通知設備 {device_id} 活動刪除時出錯: {emit_error}")
+            
+            logger.info(f"活動已刪除: {campaign_id}，受影響設備: {affected_devices}")
+            
+            return jsonify({
+                "status": "success",
+                "message": f"活動 {campaign_id} 已刪除",
+                "affected_devices": affected_devices
+            }), 200
+        
+        except Exception as e:
+            logger.error(f"刪除活動失敗: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "刪除活動失敗"
             }), 500
     
     

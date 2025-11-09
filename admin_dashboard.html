@@ -1089,18 +1089,37 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         // 載入設備列表
         async function loadDevices() {
             try {
-                const response = await fetch(API_BASE + '/connections');
-                const data = await response.json();
+                const [connectionsRes, devicesRes] = await Promise.all([
+                    fetch(API_BASE + '/connections'),
+                    fetch(API_BASE + '/devices')
+                ]);
+                
+                const connectionsData = await connectionsRes.json();
+                const devicesData = await devicesRes.json();
+                
+                const deviceMeta = {};
+                if (devicesData.devices && Array.isArray(devicesData.devices)) {
+                    devicesData.devices.forEach(device => {
+                        const deviceId = device.device_id || device._id;
+                        if (deviceId) {
+                            deviceMeta[deviceId] = device;
+                        }
+                    });
+                }
                 
                 const devicesList = document.getElementById('devicesList');
                 
-                if (data.active_devices && data.active_devices.length > 0) {
-                    devicesList.innerHTML = data.active_devices.map(device => `
+                if (connectionsData.active_devices && connectionsData.active_devices.length > 0) {
+                    devicesList.innerHTML = connectionsData.active_devices.map(device => {
+                        const detail = deviceMeta[device.device_id] || {};
+                        const locationHtml = renderDeviceLocation(detail);
+                        return `
                         <div class="device-card">
                             <div class="device-info">
                                 <h4>${device.device_id}</h4>
                                 <p>連接時間: ${new Date(device.connected_at).toLocaleString('zh-TW')}</p>
                                 <p>最後活動: ${new Date(device.last_activity).toLocaleString('zh-TW')}</p>
+                                ${locationHtml}
                             </div>
                             <div>
                                 <span class="device-status status-online">線上</span>
@@ -1109,7 +1128,8 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                 </button>
                             </div>
                         </div>
-                    `).join('');
+                    `;
+                    }).join('');
                 } else {
                     devicesList.innerHTML = '<p>目前沒有線上設備</p>';
                 }
@@ -1228,6 +1248,9 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                             <td>
                                                 <button class="btn btn-primary btn-small" onclick="viewCampaignDetail('${campaign.campaign_id}')">
                                                     查看
+                                                </button>
+                                                <button class="btn btn-danger btn-small" style="margin-left: 0.5rem;" onclick="deleteCampaign('${campaign.campaign_id}')">
+                                                    刪除
                                                 </button>
                                             </td>
                                         </tr>
@@ -1608,6 +1631,33 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             }
         }
         
+        // 刪除活動
+        async function deleteCampaign(campaignId) {
+            if (!confirm(`確定要刪除活動 ${campaignId} 嗎？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(API_BASE + `/campaigns/${campaignId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const affected = Array.isArray(data.affected_devices) ? data.affected_devices : [];
+                    const affectedMsg = affected.length > 0 ? `，已通知 ${affected.length} 台設備（${affected.join(', ')}）` : '';
+                    addLog(`活動已刪除: ${campaignId}${affectedMsg}`, 'info');
+                    alert(`✅ 活動已刪除！\n\n活動ID: ${campaignId}\n受影響設備：${affected.length} 台`);
+                    loadCampaigns();
+                } else {
+                    throw new Error(data.message || '刪除失敗');
+                }
+            } catch (error) {
+                addLog('刪除活動失敗: ' + error.message, 'error');
+                alert('刪除活動失敗: ' + error.message);
+            }
+        }
+        
         // 推送廣告
         async function pushAdvertisement() {
             const selectedDevices = Array.from(document.querySelectorAll('input[name="devices"]:checked'))
@@ -1932,6 +1982,43 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             const sizes = ['Bytes', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        function renderDeviceLocation(detail) {
+            if (!detail || !detail.last_location || !Array.isArray(detail.last_location.coordinates)) {
+                return '<p>GPS：尚無資料</p>';
+            }
+            
+            const [longitudeRaw, latitudeRaw] = detail.last_location.coordinates;
+            const longitude = Number(longitudeRaw);
+            const latitude = Number(latitudeRaw);
+            
+            if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+                return '<p>GPS：尚無資料</p>';
+            }
+            
+            const latFixed = latitude.toFixed(6);
+            const lngFixed = longitude.toFixed(6);
+            
+            return `
+                <p>GPS：緯度 ${latFixed}，經度 ${lngFixed}</p>
+                <button class="btn btn-primary btn-small" type="button" onclick="openMapAt(${latitude}, ${longitude})">
+                    在地圖查看
+                </button>
+            `;
+        }
+        
+        function openMapAt(lat, lng) {
+            const latNum = Number(lat);
+            const lngNum = Number(lng);
+            
+            if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
+                alert('無法開啟地圖：GPS 資料無效');
+                return;
+            }
+            
+            const url = `https://www.google.com/maps?q=${latNum},${lngNum}`;
+            window.open(url, '_blank', 'noopener');
         }
         
         // 點擊彈窗外部關閉
