@@ -553,7 +553,7 @@ def init_admin_api(db, socketio, device_to_sid, connection_stats, active_connect
                 }), 400
             
             # 創建活動
-            from models import CampaignModel
+            from src.models import CampaignModel
             campaign = CampaignModel.create_with_center(
                 campaign_id=campaign_id,
                 name=name,
