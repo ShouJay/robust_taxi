@@ -5,6 +5,7 @@
 
 from flask import Blueprint, request, jsonify
 from datetime import datetime
+from copy import deepcopy
 import logging
 import os
 import uuid
@@ -57,7 +58,8 @@ def init_admin_api(
     device_to_sid,
     connection_stats,
     active_connections,
-    device_campaign_state=None
+    device_campaign_state=None,
+    device_playback_state=None
 ):
     """
     初始化管理 API
@@ -68,6 +70,8 @@ def init_admin_api(
         device_to_sid: 設備到 SID 的映射
         connection_stats: 連接統計數據
         active_connections: 活動連接映射
+        device_campaign_state: 設備活動快取
+        device_playback_state: 設備播放狀態快取
     """
     
     # ========================================================================
@@ -101,6 +105,10 @@ def init_admin_api(
                     'connected_at': conn_info['connected_at'],
                     'last_activity': conn_info['last_activity']
                 })
+                if device_playback_state is not None:
+                    playback_state = device_playback_state.get(conn_info['device_id'])
+                    if playback_state is not None:
+                        active_devices[-1]['playback_state'] = deepcopy(playback_state)
             
             return jsonify({
                 "status": "success",
@@ -157,6 +165,11 @@ def init_admin_api(
                 
                 # 添加在線狀態
                 device['is_online'] = device.get('device_id', device.get('_id')) in device_to_sid
+                
+                if device_playback_state is not None:
+                    playback_state = device_playback_state.get(device['device_id'])
+                    if playback_state is not None:
+                        device['playback_state'] = deepcopy(playback_state)
             
             return jsonify({
                 "status": "success",
@@ -205,6 +218,11 @@ def init_admin_api(
                 sid = device_to_sid[device_id]
                 if sid in active_connections:
                     device['connection_info'] = active_connections[sid]
+            
+            if device_playback_state is not None:
+                playback_state = device_playback_state.get(device_id)
+                if playback_state is not None:
+                    device['playback_state'] = deepcopy(playback_state)
             
             return jsonify({
                 "status": "success",
@@ -259,6 +277,8 @@ def init_admin_api(
             
             if result.deleted_count > 0:
                 logger.info(f"設備已刪除: {device_id}")
+                if device_playback_state is not None and device_id in device_playback_state:
+                    del device_playback_state[device_id]
                 return jsonify({
                     "status": "success",
                     "message": f"設備 {device_id} 已刪除"
@@ -276,7 +296,78 @@ def init_admin_api(
                 "message": "刪除設備失敗"
             }), 500
     
+    @admin_api.route('/devices/playback', methods=['GET'])
+    def get_devices_playback():
+        """
+        獲取所有設備的播放狀態
+        
+        前端用途：
+        - 即時監控各設備播放內容
+        - 儀表板播放狀態總覽
+        """
+        if device_playback_state is None:
+            return jsonify({
+                "status": "error",
+                "message": "播放狀態功能未啟用"
+            }), 501
+        
+        try:
+            playback_list = []
+            for device_id, playback in device_playback_state.items():
+                entry = deepcopy(playback)
+                entry['device_id'] = device_id
+                entry['is_online'] = device_id in device_to_sid
+                playback_list.append(entry)
+            
+            playback_list.sort(key=lambda item: item.get('updated_at', ''), reverse=True)
+            
+            return jsonify({
+                "status": "success",
+                "total": len(playback_list),
+                "playback_states": playback_list
+            }), 200
+        except Exception as e:
+            logger.error(f"獲取播放狀態列表失敗: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "獲取播放狀態失敗"
+            }), 500
     
+    
+    @admin_api.route('/devices/<device_id>/playback', methods=['GET'])
+    def get_device_playback(device_id):
+        """
+        獲取特定設備的播放狀態
+        """
+        if device_playback_state is None:
+            return jsonify({
+                "status": "error",
+                "message": "播放狀態功能未啟用"
+            }), 501
+        
+        try:
+            playback_state = device_playback_state.get(device_id)
+            
+            if playback_state is None:
+                return jsonify({
+                    "status": "error",
+                    "message": f"裝置 {device_id} 沒有播放記錄"
+                }), 404
+            
+            response = deepcopy(playback_state)
+            response['device_id'] = device_id
+            response['is_online'] = device_id in device_to_sid
+            
+            return jsonify({
+                "status": "success",
+                "playback_state": response
+            }), 200
+        except Exception as e:
+            logger.error(f"獲取設備播放狀態失敗: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "獲取播放狀態失敗"
+            }), 500
     # ========================================================================
     # 廣告管理 API
     # ========================================================================
@@ -2289,6 +2380,16 @@ def init_admin_api(
                         socketio.emit('play_ad', payload, room=sid)
                         sent_to.append(device_id)
                         connection_stats['messages_sent'] += 1
+                        if device_playback_state is not None:
+                            device_playback_state[device_id] = {
+                                "mode": "override_play",
+                                "video_filename": video_filename,
+                                "advertisement_id": advertisement_id,
+                                "advertisement_name": advertisement.get('name', ''),
+                                "campaign_id": None,
+                                "playlist": [],
+                                "updated_at": datetime.now().isoformat()
+                            }
                         logger.info(f"推送命令已發送到: {device_id} (SID: {sid})")
                     except Exception as e:
                         logger.error(f"發送到 {device_id} 時出錯: {e}")

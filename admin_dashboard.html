@@ -50,6 +50,7 @@
         .container {
             display: flex;
             min-height: calc(100vh - 60px);
+            position: relative;
         }
 
         /* 側邊欄 */
@@ -57,6 +58,38 @@
             width: 250px;
             background-color: #34495e;
             padding: 1rem 0;
+            flex-shrink: 0;
+            transform: translateX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 60px;
+            left: 0;
+            width: 100%;
+            height: calc(100vh - 60px);
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 900;
+        }
+
+        .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .mobile-only {
+            display: none;
+        }
+
+        body.sidebar-open {
+            overflow: hidden;
         }
 
         .sidebar-item {
@@ -302,14 +335,75 @@
             color: #721c24;
         }
 
+        @media (max-width: 1024px) {
+            .navbar-actions {
+                gap: 0.5rem;
+                flex-wrap: wrap;
+            }
+        }
+
         /* 響應式設計 */
         @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .navbar {
+                flex-wrap: wrap;
+                gap: 0.75rem;
+            }
+
+            .mobile-only {
+                display: inline-flex;
+                align-items: center;
+            }
+
             .sidebar {
-                display: none;
+                position: fixed;
+                top: 60px;
+                left: 0;
+                height: calc(100vh - 60px);
+                width: 80%;
+                max-width: 280px;
+                transform: translateX(-100%);
+                z-index: 1000;
+                overflow-y: auto;
+                box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .sidebar-overlay.active {
+                display: block;
             }
             
             .main-content {
                 padding: 1rem;
+            }
+
+            .card {
+                padding: 1rem;
+                overflow-x: auto;
+            }
+
+            .card table {
+                min-width: 520px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .navbar-left h1 {
+                font-size: 1.2rem;
+            }
+
+            .card-title {
+                font-size: 1.1rem;
+            }
+
+            .stat-value {
+                font-size: 1.6rem;
             }
         }
 
@@ -387,7 +481,10 @@
 <body>
     <!-- 頂部導航欄 -->
     <nav class="navbar">
-        <h1>🚕 智能計程車廣告管理系統</h1>
+        <div class="navbar-left">
+            <button class="btn btn-primary btn-small mobile-only" id="toggleSidebarBtn">☰ 選單</button>
+            <h1>🚕 智能計程車廣告管理系統</h1>
+        </div>
         <div class="navbar-actions">
             <span id="loginUserEmail">管理員</span>
             <button class="btn btn-danger btn-small" onclick="logout()">登出</button>
@@ -423,6 +520,7 @@
                 <i>📝</i> 系統日誌
             </button>
         </aside>
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
 
         <!-- 主內容區 -->
         <main class="main-content">
@@ -451,6 +549,13 @@
                 <div class="card">
                     <div class="card-title">系統狀態</div>
                     <div id="systemStatus">
+                        <p>載入中...</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">目前播放狀態</div>
+                    <div id="playbackStatusContainer">
                         <p>載入中...</p>
                     </div>
                 </div>
@@ -769,6 +874,8 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
 
         // Socket.IO 連接
         let socket = null;
+        let sidebar = null;
+        let sidebarOverlay = null;
         // API 基礎路徑
         // 自動偵測目前網域與協定
         const API_BASE = window.location.origin + '/api/v1/admin';
@@ -777,6 +884,21 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
 
         // 初始化
         document.addEventListener('DOMContentLoaded', function() {
+            sidebar = document.querySelector('.sidebar');
+            sidebarOverlay = document.getElementById('sidebarOverlay');
+            const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+
+            if (toggleSidebarBtn) {
+                toggleSidebarBtn.addEventListener('click', toggleSidebar);
+            }
+
+            if (sidebarOverlay) {
+                sidebarOverlay.addEventListener('click', closeSidebar);
+            }
+
+            window.addEventListener('resize', handleResponsiveSidebar);
+            handleResponsiveSidebar();
+
             initWebSocket();
             loadDashboard();
             setupEventListeners();
@@ -870,9 +992,17 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             
             // 顯示選中頁面
             document.getElementById(pageName + 'Page').classList.add('active');
-            event.target.classList.add('active');
+            if (event && event.currentTarget) {
+                event.currentTarget.classList.add('active');
+            } else if (event && event.target) {
+                event.target.classList.add('active');
+            }
             
             currentPage = pageName;
+
+            if (window.innerWidth <= 768) {
+                closeSidebar();
+            }
             
             // 載入頁面數據
             switch(pageName) {
@@ -1056,17 +1186,19 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         async function loadDashboard() {
             try {
                 // 獲取統計數據
-                const [connectionsRes, adsRes, campaignsRes, healthRes] = await Promise.all([
+                const [connectionsRes, adsRes, campaignsRes, healthRes, playbackRes] = await Promise.all([
                     fetch(API_BASE + '/connections'),
                     fetch(API_BASE + '/advertisements?status=active'),
                     fetch(API_BASE + '/campaigns?status=active'),
-                    fetch(window.location.origin + '/health')
+                    fetch(window.location.origin + '/health'),
+                    fetch(API_BASE + '/devices/playback')
                 ]);
                 
                 const connections = await connectionsRes.json();
                 const ads = await adsRes.json();
                 const campaigns = await campaignsRes.json();
                 const health = await healthRes.json();
+                const playback = await playbackRes.json();
                 
                 // 更新統計
                 document.getElementById('activeDevices').textContent = connections.active_devices?.length || 0;
@@ -1081,6 +1213,43 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     <p>活動連接數: ${health.active_connections}</p>
                     <p>服務器時間: ${new Date().toLocaleString('zh-TW')}</p>
                 `;
+
+                // 更新播放狀態
+                const playbackContainer = document.getElementById('playbackStatusContainer');
+                if (playback.status === 'success' && Array.isArray(playback.playback_states) && playback.playback_states.length > 0) {
+                    playbackContainer.innerHTML = `
+                        <div style="overflow-x: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>設備</th>
+                                        <th>線上狀態</th>
+                                        <th>播放模式</th>
+                                        <th>播放內容</th>
+                                        <th>更新時間</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${playback.playback_states.map(state => `
+                                        <tr>
+                                            <td>${state.device_id}</td>
+                                            <td>
+                                                <span class="device-status ${state.is_online ? 'status-online' : 'status-offline'}">
+                                                    ${state.is_online ? '線上' : '離線'}
+                                                </span>
+                                            </td>
+                                            <td>${renderPlaybackMode(state.mode)}</td>
+                                            <td>${renderPlaybackMedia(state)}</td>
+                                            <td>${formatTimestamp(state.updated_at)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                } else {
+                    playbackContainer.innerHTML = '<p>尚無播放記錄</p>';
+                }
             } catch (error) {
                 addLog('載入儀表板失敗: ' + error.message, 'error');
             }
@@ -1113,6 +1282,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     devicesList.innerHTML = connectionsData.active_devices.map(device => {
                         const detail = deviceMeta[device.device_id] || {};
                         const locationHtml = renderDeviceLocation(detail);
+                        const playbackHtml = renderDevicePlayback(detail);
                         return `
                         <div class="device-card">
                             <div class="device-info">
@@ -1120,6 +1290,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                 <p>連接時間: ${new Date(device.connected_at).toLocaleString('zh-TW')}</p>
                                 <p>最後活動: ${new Date(device.last_activity).toLocaleString('zh-TW')}</p>
                                 ${locationHtml}
+                                ${playbackHtml}
                             </div>
                             <div>
                                 <span class="device-status status-online">線上</span>
@@ -1952,6 +2123,59 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             logContainer.innerHTML = '<div class="log-entry"><span class="log-time">[系統]</span> 日誌已清空</div>';
         }
         
+        function toggleSidebar() {
+            if (!sidebar) {
+                return;
+            }
+            if (sidebar.classList.contains('open')) {
+                closeSidebar();
+            } else {
+                openSidebar();
+            }
+        }
+
+        function openSidebar() {
+            if (!sidebar) {
+                return;
+            }
+            sidebar.classList.add('open');
+            if (sidebarOverlay) {
+                sidebarOverlay.classList.add('active');
+            }
+            document.body.classList.add('sidebar-open');
+        }
+
+        function closeSidebar() {
+            if (!sidebar) {
+                return;
+            }
+            sidebar.classList.remove('open');
+            if (sidebarOverlay) {
+                sidebarOverlay.classList.remove('active');
+            }
+            document.body.classList.remove('sidebar-open');
+        }
+
+        function handleResponsiveSidebar() {
+            if (!sidebar) {
+                return;
+            }
+
+            if (window.innerWidth > 768) {
+                sidebar.classList.add('open');
+                if (sidebarOverlay) {
+                    sidebarOverlay.classList.remove('active');
+                }
+                document.body.classList.remove('sidebar-open');
+            } else {
+                sidebar.classList.remove('open');
+                if (sidebarOverlay) {
+                    sidebarOverlay.classList.remove('active');
+                }
+                document.body.classList.remove('sidebar-open');
+            }
+        }
+
         // 顯示彈窗
         function showCreateAdModal() {
             const form = document.getElementById('createAdForm');
@@ -2019,6 +2243,69 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             
             const url = `https://www.google.com/maps?q=${latNum},${lngNum}`;
             window.open(url, '_blank', 'noopener');
+        }
+
+        function renderDevicePlayback(detail) {
+            if (!detail || !detail.playback_state) {
+                return '<p>播放狀態：尚無資料</p>';
+            }
+            const state = detail.playback_state;
+            return `
+                <p>播放狀態：${renderPlaybackMode(state.mode)}</p>
+                <p>播放內容：${renderPlaybackMedia(state)}</p>
+                <p>更新時間：${formatTimestamp(state.updated_at)}</p>
+            `;
+        }
+
+        function renderPlaybackMode(mode) {
+            const mapping = {
+                registered: '剛註冊',
+                campaign_playback: '活動播放',
+                local_playlist: '本地播放',
+                single_play: '單次播放',
+                override_play: '覆蓋播放',
+                offline: '離線',
+                unknown: '未知'
+            };
+            if (!mode) {
+                return mapping.unknown;
+            }
+            return mapping[mode] || `${mode}`;
+        }
+
+        function renderPlaybackMedia(state) {
+            if (!state) {
+                return '-';
+            }
+
+            const name = state.advertisement_name || '未指定廣告';
+            const filename = state.video_filename || '-';
+            let playlistInfo = '';
+
+            if (Array.isArray(state.playlist) && state.playlist.length > 0) {
+                playlistInfo = `（播放清單 ${state.playlist.length}）`;
+            }
+
+            if (state.mode === 'local_playlist') {
+                return '本地播放列表';
+            }
+
+            if (state.mode === 'offline') {
+                return '設備離線';
+            }
+
+            return `${name} <small style="color:#7f8c8d;">${filename}</small> ${playlistInfo}`;
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) {
+                return '-';
+            }
+            const date = new Date(timestamp);
+            if (Number.isNaN(date.getTime())) {
+                return timestamp;
+            }
+            return date.toLocaleString('zh-TW');
         }
         
         // 點擊彈窗外部關閉

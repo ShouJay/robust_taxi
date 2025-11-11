@@ -52,23 +52,41 @@ echo ""
 echo " 步驟 5/5：初始化數據庫..."
 sleep 2  # 額外等待確保服務完全就緒
 
-# 檢查服務是否啟動
-if curl -s http://localhost:8080/health > /dev/null 2>&1; then
-    echo " 服務健康檢查通過"
-    
-    # 初始化數據庫
-    echo ""
-    echo "正在初始化數據庫..."
-    INIT_RESULT=$(curl -s http://localhost:8080/init_db)
-    
-    if echo "$INIT_RESULT" | grep -q "success"; then
-        echo " 數據庫初始化成功"
+HEALTH_URL="http://localhost:8080/health"
+INIT_URL="http://localhost:8080/init_db"
+MAX_RETRIES=12
+RETRY_INTERVAL=5
+
+echo " 等待服務健康檢查通過（最多 $((MAX_RETRIES * RETRY_INTERVAL)) 秒）..."
+
+for attempt in $(seq 1 $MAX_RETRIES); do
+    if curl -s "$HEALTH_URL" > /dev/null 2>&1; then
+        echo " 服務健康檢查通過（第 ${attempt} 次嘗試）"
+        
+        # 初始化數據庫
+        echo ""
+        echo "正在初始化數據庫..."
+        INIT_RESULT=$(curl -s "$INIT_URL")
+        
+        if echo "$INIT_RESULT" | grep -q "\"status\":\"success\""; then
+            echo " 數據庫初始化成功"
+        else
+            echo " ⚠️ 數據庫初始化可能失敗，API 回應如下："
+            echo " $INIT_RESULT"
+        fi
+        HEALTH_OK=true
+        break
     else
-        echo " 數據庫初始化可能失敗，請手動檢查"
+        echo " 服務尚未就緒，${RETRY_INTERVAL} 秒後重試... (第 ${attempt}/${MAX_RETRIES} 次)"
+        sleep $RETRY_INTERVAL
     fi
-else
-    echo " 服務啟動失敗，請查看日誌："
-    echo "   docker-compose -f docker/docker-compose.yml logs"
+done
+
+if [ -z "${HEALTH_OK}" ]; then
+    echo ""
+    echo " ❌ 服務在預期時間內未通過健康檢查。"
+    echo " 請查看日誌以深入分析："
+    echo "   docker-compose -f docker/docker-compose.yml logs --tail=200"
     exit 1
 fi
 

@@ -87,6 +87,9 @@ connection_stats = {
 # 設備 -> 當前活動狀態快取
 device_campaign_state = {}
 
+# 設備 -> 當前播放狀態快取
+device_playback_state = {}
+
 
 def get_active_devices():
     """獲取所有活動設備列表"""
@@ -118,6 +121,16 @@ def register_device(sid, device_id):
     
     logger.info(f"設備已註冊: {device_id} (SID: {sid})")
 
+    device_playback_state[device_id] = {
+        "mode": "registered",
+        "video_filename": None,
+        "advertisement_id": None,
+        "advertisement_name": None,
+        "campaign_id": None,
+        "playlist": [],
+        "updated_at": datetime.now().isoformat()
+    }
+
 
 def unregister_device(sid):
     """取消註冊設備連接"""
@@ -130,6 +143,15 @@ def unregister_device(sid):
         
         connection_stats['active_devices'] = len(device_to_sid)
         logger.info(f"設備已斷開: {device_id} (SID: {sid})")
+        device_playback_state[device_id] = {
+            "mode": "offline",
+            "video_filename": None,
+            "advertisement_id": None,
+            "advertisement_name": None,
+            "campaign_id": None,
+            "playlist": [],
+            "updated_at": datetime.now().isoformat()
+        }
         return device_id
     return None
 
@@ -245,6 +267,8 @@ def handle_location_update(data):
 
         if matching_campaign_id == current_campaign_id:
             logger.info(f"[狀態不變] {device_id} 仍在 {current_campaign_id}。不推送。")
+            if device_id in device_playback_state:
+                device_playback_state[device_id]["updated_at"] = datetime.now().isoformat()
             emit('location_ack', {
                 'message': '位置更新已處理，狀態未改變',
                 'campaign_id': current_campaign_id,
@@ -280,6 +304,17 @@ def handle_location_update(data):
             })
             connection_stats['messages_sent'] += 1
 
+            first_entry = campaign_playlist[0] if campaign_playlist else {}
+            device_playback_state[device_id] = {
+                "mode": "campaign_playback",
+                "video_filename": first_entry.get("videoFilename"),
+                "advertisement_id": first_entry.get("advertisementId"),
+                "advertisement_name": first_entry.get("advertisementName"),
+                "campaign_id": matching_campaign_id,
+                "playlist": campaign_playlist,
+                "updated_at": datetime.now().isoformat()
+            }
+
             emit('location_ack', {
                 'message': '位置更新已處理，活動已開始',
                 'campaign_id': matching_campaign_id,
@@ -293,6 +328,16 @@ def handle_location_update(data):
                 "timestamp": datetime.now().isoformat()
             })
             connection_stats['messages_sent'] += 1
+
+            device_playback_state[device_id] = {
+                "mode": "local_playlist",
+                "video_filename": None,
+                "advertisement_id": None,
+                "advertisement_name": None,
+                "campaign_id": None,
+                "playlist": [],
+                "updated_at": datetime.now().isoformat()
+            }
 
             emit('location_ack', {
                 'message': '位置更新已處理，恢復為本地播放列表',
@@ -839,6 +884,16 @@ def device_heartbeat():
             
             socketio.emit('play_ad', payload, room=sid)
             connection_stats['messages_sent'] += 1
+
+            device_playback_state[device_id] = {
+                "mode": "single_play",
+                "video_filename": video_filename,
+                "advertisement_id": ad_info.get('advertisement_id'),
+                "advertisement_name": ad_info.get('advertisement_name', ''),
+                "campaign_id": ad_info.get('campaign_id'),
+                "playlist": [],
+                "updated_at": datetime.now().isoformat()
+            }
             
             logger.info(f"已通過 WebSocket 推送廣告到 {device_id}: {video_filename}")
         
@@ -866,7 +921,8 @@ admin_blueprint = init_admin_api(
     device_to_sid=device_to_sid,
     connection_stats=connection_stats,
     active_connections=active_connections,
-    device_campaign_state=device_campaign_state
+    device_campaign_state=device_campaign_state,
+    device_playback_state=device_playback_state
 )
 # app.register_blueprint(admin_blueprint)
 
