@@ -899,6 +899,11 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             window.addEventListener('resize', handleResponsiveSidebar);
             handleResponsiveSidebar();
 
+            // 請求瀏覽器通知權限
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+
             initWebSocket();
             loadDashboard();
             setupEventListeners();
@@ -955,6 +960,11 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     handleWebSocketMessage(data);
                 });
                 
+                // 監聽 QR Code 掃描事件
+                socket.on('qr_scan_event', function(data) {
+                    handleQRScanEvent(data);
+                });
+                
             } catch (error) {
                 addLog('初始化 Socket.IO 失敗: ' + error.message, 'error');
             }
@@ -975,6 +985,45 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                         loadDashboard();
                     }
                     break;
+            }
+        }
+        
+        // 處理 QR Code 掃描事件
+        function handleQRScanEvent(data) {
+            const scanData = data.data || {};
+            const timestamp = scanData.timestamp || new Date().toISOString();
+            const clientIp = scanData.client_ip || '未知';
+            const userAgent = scanData.user_agent || '未知';
+            
+            // 格式化時間
+            const timeStr = new Date(timestamp).toLocaleString('zh-TW');
+            
+            // 記錄到日誌
+            addLog(`📱 [QR Code 掃描] 使用者掃描QRcode - IP: ${clientIp} - 時間: ${timeStr}`, 'success');
+            
+            // 顯示瀏覽器通知（如果允許）
+            if (Notification.permission === 'granted') {
+                new Notification('QR Code 掃描通知', {
+                    body: `使用者掃描QRcode\nIP: ${clientIp}\n時間: ${timeStr}`,
+                    icon: '🚕',
+                    tag: 'qr-scan-' + Date.now() // 使用 tag 避免重複通知
+                });
+            } else if (Notification.permission !== 'denied') {
+                // 請求通知權限
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        new Notification('QR Code 掃描通知', {
+                            body: `使用者掃描QRcode\nIP: ${clientIp}\n時間: ${timeStr}`,
+                            icon: '🚕'
+                        });
+                    }
+                });
+            }
+            
+            // 如果當前在儀表板頁面，可以更新統計數據
+            if (currentPage === 'dashboard') {
+                // 可以選擇刷新儀表板或更新特定統計
+                // loadDashboard();
             }
         }
         

@@ -958,6 +958,55 @@ def admin_dashboard():
         return "管理者後台檔案不存在", 404
 
 
+@app.route('/qr-scan')
+@app.route('/qr_scan.html')
+def qr_scan_page():
+    """提供 QR Code 掃描頁面"""
+    try:
+        with open('qr_scan.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "QR Code 掃描頁面不存在", 404
+
+
+@app.route('/asset/<path:filename>')
+def serve_asset(filename):
+    """提供靜態資源檔案（影片等）"""
+    try:
+        # asset 資料夾在 src/ 目錄下（與 app.py 同級）
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        asset_dir = os.path.join(current_dir, 'asset')
+        asset_path = os.path.join(asset_dir, filename)
+        
+        # 安全檢查：確保檔案路徑在 asset 目錄內（防止路徑遍歷攻擊）
+        asset_path = os.path.normpath(asset_path)
+        asset_dir = os.path.normpath(asset_dir)
+        
+        if not asset_path.startswith(asset_dir):
+            logger.warning(f"嘗試訪問 asset 目錄外的檔案: {filename}")
+            return jsonify({
+                "status": "error",
+                "message": "無效的檔案路徑"
+            }), 403
+        
+        if not os.path.exists(asset_path):
+            logger.warning(f"檔案不存在: {asset_path}")
+            return jsonify({
+                "status": "error",
+                "message": f"檔案 {filename} 不存在"
+            }), 404
+        
+        from flask import send_from_directory
+        logger.info(f"提供靜態資源: {asset_path}")
+        return send_from_directory(asset_dir, filename)
+    except Exception as e:
+        logger.error(f"提供靜態資源失敗: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": f"無法提供檔案: {str(e)}"
+        }), 500
+
+
 # ============================================================================
 # 主程序入口
 # ============================================================================

@@ -2493,5 +2493,89 @@ def init_admin_api(
             }), 500
     
     
+    # ========================================================================
+    # QR Code 掃描事件 API
+    # ========================================================================
+    
+    @admin_api.route('/qr-scan', methods=['POST'])
+    def record_qr_scan():
+        """
+        記錄使用者掃描 QR Code 事件
+        
+        前端用途：
+        - QR Code 掃描頁面載入時自動調用
+        - 通知管理員系統有使用者掃描了 QR Code
+        
+        Request Body:
+            {
+                "timestamp": "2025-01-01T12:00:00",
+                "user_agent": "Mozilla/5.0...",
+                "referrer": "https://example.com",
+                "screen_width": 1920,
+                "screen_height": 1080
+            }
+        
+        Returns:
+            {
+                "status": "success",
+                "message": "QR Code 掃描事件已記錄",
+                "scan_id": "..."
+            }
+        """
+        try:
+            data = request.get_json() or {}
+            
+            # 獲取客戶端 IP
+            client_ip = request.remote_addr
+            if request.headers.get('X-Forwarded-For'):
+                client_ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+            
+            # 構建掃描記錄
+            scan_record = {
+                "scan_id": str(uuid.uuid4()),
+                "timestamp": data.get('timestamp', datetime.now().isoformat()),
+                "client_ip": client_ip,
+                "user_agent": data.get('user_agent', request.headers.get('User-Agent', 'Unknown')),
+                "referrer": data.get('referrer', request.headers.get('Referer', 'direct')),
+                "screen_width": data.get('screen_width'),
+                "screen_height": data.get('screen_height'),
+                "created_at": datetime.now().isoformat()
+            }
+            
+            # 記錄到日誌
+            logger.info(f"📱 [QR Code 掃描] 使用者掃描QRcode - IP: {client_ip}, 時間: {scan_record['timestamp']}")
+            
+            # 可以選擇將記錄保存到數據庫（如果需要的話）
+            # 這裡我們先記錄到日誌，如果需要持久化，可以創建一個 qr_scans 集合
+            # if hasattr(db, 'qr_scans'):
+            #     db.qr_scans.insert_one(scan_record)
+            
+            # 通過 WebSocket 廣播給所有管理員（如果有的話）
+            try:
+                socketio.emit('qr_scan_event', {
+                    "type": "qr_scan",
+                    "message": "使用者掃描QRcode",
+                    "data": scan_record,
+                    "timestamp": datetime.now().isoformat()
+                }, namespace='/')
+                logger.debug("已通過 WebSocket 廣播 QR Code 掃描事件")
+            except Exception as ws_error:
+                logger.warning(f"WebSocket 廣播失敗: {ws_error}")
+            
+            return jsonify({
+                "status": "success",
+                "message": "QR Code 掃描事件已記錄",
+                "scan_id": scan_record['scan_id'],
+                "timestamp": scan_record['timestamp']
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"記錄 QR Code 掃描事件失敗: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "記錄掃描事件失敗"
+            }), 500
+    
+    
     return admin_api
 
