@@ -516,6 +516,9 @@
             <button class="sidebar-item" onclick="showPage('download', event)">
                 <i>⬇️</i> 下載管理
             </button>
+            <button class="sidebar-item" onclick="showPage('dualControl', event)">
+                <i>🚨</i> 雙螢幕中控
+            </button>
             <button class="sidebar-item" onclick="showPage('logs', event)">
                 <i>📝</i> 系統日誌
             </button>
@@ -712,6 +715,74 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                         </div>
                         <button type="submit" class="btn btn-primary">推送下載</button>
                     </form>
+                </div>
+            </div>
+
+            <!-- 雙螢幕中控頁面 (嵌入式) -->
+            <div id="dualControlPage" class="page-content">
+                <h2>雙螢幕中控台</h2>
+                <div class="row" style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                    <!-- 系統狀態 -->
+                    <div class="col-md-6" style="flex: 1 1 300px;">
+                        <div class="card h-100" style="margin-bottom: 0;">
+                            <div class="card-title">系統狀態</div>
+                            <div class="card-body text-center d-flex flex-column justify-content-center" id="embeddedStatusCard" style="padding: 2rem; border-radius: 8px; transition: all 0.3s;">
+                                <h2 id="embeddedStatusText" style="margin: 0 0 1.5rem 0;">載入中...</h2>
+                                <div>
+                                    <button id="embeddedTriggerBtn" class="btn btn-danger btn-lg" style="width: 100%; padding: 1rem; font-size: 1.2rem; margin-bottom: 1rem;" onclick="triggerAlarm()">
+                                        ⚠️ 觸發警報 (Trigger Alarm)
+                                    </button>
+                                    <button id="embeddedResetBtn" class="btn btn-success btn-lg" style="width: 100%; padding: 1rem; font-size: 1.2rem; display:none;" onclick="resetAlarm()">
+                                        ✅ 恢復正常 (Reset)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- QR Code 統計 -->
+                    <div class="col-md-6" style="flex: 1 1 300px;">
+                        <div class="card h-100" style="margin-bottom: 0;">
+                            <div class="card-title">即時數據</div>
+                            <div class="card-body text-center" style="padding: 2rem;">
+                                <h5>QR Code 掃描人數</h5>
+                                <div id="embeddedQrCount" style="font-size: 4rem; font-weight: bold; color: #3498db; margin: 1rem 0;">0</div>
+                                <p style="color: #7f8c8d;">即時更新中...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 跑馬燈設置 -->
+                    <div class="col-12" style="flex: 1 1 100%; margin-top: 1.5rem;">
+                        <div class="card" style="margin-bottom: 0;">
+                            <div class="card-title">跑馬燈控制 (Screen A)</div>
+                            <div class="card-body">
+                                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                                    <input type="text" id="embeddedMarqueeInput" class="form-control" placeholder="輸入跑馬燈文字...">
+                                    <button class="btn btn-primary" onclick="updateMarquee()">發送更新</button>
+                                </div>
+                                <div style="background-color: #e3f2fd; color: #2980b9; padding: 1rem; border-radius: 4px;">
+                                    當前內容: <span id="embeddedCurrentMarquee" style="font-weight: bold;">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 警報影片設置 -->
+                    <div class="col-12" style="flex: 1 1 100%; margin-top: 1.5rem;">
+                        <div class="card" style="margin-bottom: 0;">
+                            <div class="card-title">警報影片設定 (Screen B)</div>
+                            <div class="card-body">
+                                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                                    <input type="text" id="embeddedVideoInput" class="form-control" placeholder="輸入影片檔名 (如 earthquake_alert.mp4)...">
+                                    <button class="btn btn-primary" onclick="updateVideo()">更新影片設定</button>
+                                </div>
+                                <div style="background-color: #fff3cd; color: #856404; padding: 1rem; border-radius: 4px;">
+                                    當前設定: <span id="embeddedCurrentVideo" style="font-weight: bold;">-</span> (請確保 App 端已下載此檔名之影片)
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1076,9 +1147,135 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 case 'download':
                     loadDownloadPage();
                     break;
+                case 'dualControl':
+                    loadDualControlPage();
+                    break;
             }
         }
         
+        // 載入雙螢幕中控頁面
+        async function loadDualControlPage() {
+            try {
+                // 獲取初始狀態
+                const [statusRes, statsRes] = await Promise.all([
+                    fetch('/api/v2/control/status'),
+                    fetch('/api/v2/stats/qr')
+                ]);
+                
+                const statusData = await statusRes.json();
+                const statsData = await statsRes.json();
+
+                updateDualControlUI(statusData);
+                document.getElementById('embeddedQrCount').innerText = statsData.count;
+                
+                // 確保 Socket 監聽器已設置 (重用現有的 socket)
+                if(socket) {
+                    // 移除舊的監聽器避免重複
+                    socket.off('system_state_update');
+                    socket.off('stats_update');
+                    
+                    // 重新綁定
+                    socket.on('system_state_update', (data) => {
+                        addLog('收到系統狀態更新', 'info');
+                        updateDualControlUI(data);
+                    });
+
+                    socket.on('stats_update', (data) => {
+                        // 只在當前頁面是中控台時更新 UI，避免干擾
+                        if(currentPage === 'dualControl') {
+                            document.getElementById('embeddedQrCount').innerText = data.qr_scan_count;
+                        }
+                    });
+                }
+            } catch (error) {
+                addLog('載入中控台數據失敗: ' + error.message, 'error');
+            }
+        }
+
+        function updateDualControlUI(data) {
+            // 只在元素存在時更新
+            const statusCard = document.getElementById('embeddedStatusCard');
+            if(!statusCard) return;
+
+            const statusText = document.getElementById('embeddedStatusText');
+            const triggerBtn = document.getElementById('embeddedTriggerBtn');
+            const resetBtn = document.getElementById('embeddedResetBtn');
+            const currentMarquee = document.getElementById('embeddedCurrentMarquee');
+            const currentVideo = document.getElementById('embeddedCurrentVideo');
+
+            currentMarquee.innerText = data.marquee_text;
+            if(currentVideo) currentVideo.innerText = data.emergency_video || '未設定';
+
+            if (data.is_alarm_active) {
+                statusCard.style.backgroundColor = '#f8d7da';
+                statusCard.style.borderColor = '#f5c6cb';
+                statusText.innerText = '⚠️ 警報模式 (ALARM)';
+                statusText.style.color = '#721c24';
+                triggerBtn.style.display = 'none';
+                resetBtn.style.display = 'block';
+            } else {
+                statusCard.style.backgroundColor = '#d4edda';
+                statusCard.style.borderColor = '#c3e6cb';
+                statusText.innerText = '🟢 正常模式 (Normal)';
+                statusText.style.color = '#155724';
+                triggerBtn.style.display = 'block';
+                resetBtn.style.display = 'none';
+            }
+        }
+
+        async function triggerAlarm() {
+            if(!confirm("確定要觸發警報嗎？這將會中斷所有螢幕播放！")) return;
+            try {
+                await fetch('/api/v2/control/trigger', { method: 'POST' });
+                addLog('已觸發警報', 'warning');
+            } catch(e) {
+                addLog('觸發警報失敗', 'error');
+            }
+        }
+
+        async function resetAlarm() {
+            try {
+                await fetch('/api/v2/control/reset', { method: 'POST' });
+                addLog('已恢復正常模式', 'success');
+            } catch(e) {
+                addLog('重置警報失敗', 'error');
+            }
+        }
+
+        async function updateMarquee() {
+            const text = document.getElementById('embeddedMarqueeInput').value;
+            if (!text) return;
+            
+            try {
+                await fetch('/api/v2/config/marquee', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                document.getElementById('embeddedMarqueeInput').value = '';
+                addLog('跑馬燈已更新', 'info');
+            } catch(e) {
+                addLog('更新跑馬燈失敗', 'error');
+            }
+        }
+
+        async function updateVideo() {
+            const filename = document.getElementById('embeddedVideoInput').value;
+            if (!filename) return;
+            
+            try {
+                await fetch('/api/v2/config/video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                document.getElementById('embeddedVideoInput').value = '';
+                addLog('警報影片已更新', 'info');
+            } catch(e) {
+                addLog('更新影片設定失敗', 'error');
+            }
+        }
+
         // 註冊新設備
         async function registerDevice() {
             const deviceId = document.getElementById('newDeviceId').value.trim();
@@ -1256,16 +1453,19 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 document.getElementById('todayPushes').textContent = connections.stats?.messages_sent || 0;
                 
                 // 更新系統狀態
-                document.getElementById('systemStatus').innerHTML = `
-                    <p>服務狀態: <span style="color: #27ae60;">運行中</span></p>
-                    <p>數據庫狀態: ${health.database}</p>
-                    <p>活動連接數: ${health.active_connections}</p>
-                    <p>服務器時間: ${new Date().toLocaleString('zh-TW')}</p>
-                `;
+                if(document.getElementById('systemStatus')) {
+                    document.getElementById('systemStatus').innerHTML = `
+                        <p>服務狀態: <span style="color: #27ae60;">運行中</span></p>
+                        <p>數據庫狀態: ${health.database}</p>
+                        <p>活動連接數: ${health.active_connections}</p>
+                        <p>服務器時間: ${new Date().toLocaleString('zh-TW')}</p>
+                    `;
+                }
 
                 // 更新播放狀態
                 const playbackContainer = document.getElementById('playbackStatusContainer');
-                if (playback.status === 'success' && Array.isArray(playback.playback_states) && playback.playback_states.length > 0) {
+                if (playbackContainer) {
+                    if (playback.status === 'success' && Array.isArray(playback.playback_states) && playback.playback_states.length > 0) {
                     playbackContainer.innerHTML = `
                         <div style="overflow-x: auto;">
                             <table>
@@ -1298,6 +1498,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     `;
                 } else {
                     playbackContainer.innerHTML = '<p>尚無播放記錄</p>';
+                }
                 }
             } catch (error) {
                 addLog('載入儀表板失敗: ' + error.message, 'error');
@@ -2357,6 +2558,20 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             return date.toLocaleString('zh-TW');
         }
         
+        // 開啟雙螢幕中控台（新開視窗）
+        function openDualScreenControl(event) {
+            // 更新選單樣式
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            if (event && event.currentTarget) {
+                event.currentTarget.classList.add('active');
+            }
+
+            // 在新分頁開啟
+            window.open('/control', '_blank');
+        }
+
         // 點擊彈窗外部關閉
         window.onclick = function(event) {
             if (event.target.classList.contains('modal')) {

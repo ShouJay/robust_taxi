@@ -26,6 +26,12 @@
 
 ##  核心功能
 
+### 0. 雙螢幕與緊急廣播系統 (New)
+- **多螢幕協作**: 支援 A/B 螢幕異步顯示（廣告/跑馬燈/即時數據）。
+- **緊急插播**: 支援一鍵觸發警報，強制中斷播放並切換至地震速報。
+- **QR Code 即時統計**: 使用者掃描後，數據即時推送至看板。
+- **中控台**: 專屬網頁介面 `/control`，即時管理跑馬燈與警報狀態。
+
 ### 1.基於位置的智能廣告決策
 - 設備定期發送 GPS 位置數據
 - 服務器即時進行地理圍欄匹配
@@ -169,6 +175,14 @@ python tests/test_admin_push.py
 ##  API 文檔
 
 ### HTTP 端點
+
+#### 0. 雙螢幕控制 (V2)
+- 中控台頁面: `GET /control`
+- 狀態查詢: `GET /api/v2/control/status`
+- 觸發警報: `POST /api/v2/control/trigger`
+- 恢復正常: `POST /api/v2/control/reset`
+- 設置跑馬燈: `POST /api/v2/config/marquee` (`{"text": "..."}`)
+- QR 統計: `GET /api/v2/stats/qr`
 
 #### 1. 健康檢查
 ```

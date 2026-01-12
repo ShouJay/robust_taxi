@@ -23,6 +23,8 @@ from src.services import AdDecisionService
 from src.models import HeartbeatRequest, HeartbeatResponse
 from src.sample_data import SampleData
 from src.admin_api import init_admin_api
+from src.dual_screen_api import dual_screen_bp
+from src.emergency_manager import EmergencyManager
 
 # ============================================================================
 # 應用程序設置
@@ -42,6 +44,10 @@ socketio = SocketIO(
     cors_allowed_origins="*",  # 生產環境應限制來源
     async_mode='eventlet'
 )
+
+# 初始化緊急管理器並注入 SocketIO
+emergency_manager = EmergencyManager()
+emergency_manager.set_socketio(socketio)
 
 # 設置日誌
 logging.basicConfig(
@@ -210,6 +216,15 @@ def handle_register(data):
             'device_id': device_id,
             'device_type': device.get('device_type'),
             'timestamp': datetime.now().isoformat()
+        })
+        
+        # [V2] 自動推送當前的雙螢幕系統狀態與統計數據
+        # 這樣 App 一連上並註冊後，就能立即知道當前的跑馬燈、警報狀態與 QR 計數
+        current_state = emergency_manager.get_state()
+        emit('system_state_update', current_state)
+        emit('stats_update', {
+            "qr_scan_count": emergency_manager.qr_scan_count,
+            "timestamp": datetime.now().isoformat()
         })
         
         logger.info(f"設備註冊成功: {device_id} (SID: {sid})")
@@ -930,6 +945,10 @@ admin_blueprint = init_admin_api(
 app.register_blueprint(admin_blueprint, url_prefix="/api/v1/admin")
 logger.info("前端管理 API 已註冊 (/api/v1/admin)")
 
+# 註冊雙螢幕控制 API (V2)
+app.register_blueprint(dual_screen_bp)
+logger.info("雙螢幕控制 API 已註冊 (/api/v2)")
+
 
 
 # ============================================================================
@@ -956,6 +975,17 @@ def admin_dashboard():
             return f.read()
     except FileNotFoundError:
         return "管理者後台檔案不存在", 404
+
+
+@app.route('/control')
+@app.route('/control_panel.html')
+def control_panel():
+    """提供雙螢幕中控台"""
+    try:
+        with open('control_panel.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "中控台檔案不存在", 404
 
 
 @app.route('/qr-scan')

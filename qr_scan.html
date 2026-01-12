@@ -92,17 +92,14 @@
         // 通知管理員系統：使用者掃描QRcode
         async function notifyAdminSystem() {
             try {
-                const response = await fetch('/api/v1/admin/qr-scan', {
+                // 使用新的 V2 API 來記錄並增加計數
+                const response = await fetch('/api/v2/stats/qr', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        timestamp: new Date().toISOString(),
-                        user_agent: navigator.userAgent,
-                        referrer: document.referrer || 'direct',
-                        screen_width: window.screen.width,
-                        screen_height: window.screen.height
+                        timestamp: new Date().toISOString()
                     })
                 });
 
@@ -110,11 +107,10 @@
                     console.warn('通知管理員系統失敗:', response.status);
                 } else {
                     const data = await response.json();
-                    console.log('已通知管理員系統:', data);
+                    console.log('已通知管理員系統 (Count: ' + data.count + ')');
                 }
             } catch (error) {
                 console.error('通知管理員系統時發生錯誤:', error);
-                // 即使通知失敗，也不影響影片播放
             }
         }
 
