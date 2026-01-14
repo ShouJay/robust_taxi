@@ -800,7 +800,7 @@ def health_check():
 def qrcode_entry():
     # 這裡可以隨時改成你想導向的任何網址
     # 例如導向 Google：
-    return redirect("https://www.google.com")
+    return redirect("https://drive.google.com/drive/folders/1MIyWQckNgUPCb3kTl4DbkFZ15Uc4dCTM")
 
 @app.route('/init_db', methods=['GET'])
 def init_database():
