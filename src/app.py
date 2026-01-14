@@ -9,7 +9,7 @@
 4. 支持管理員主動插播
 """
 
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, redirect
 from flask_socketio import SocketIO, emit, disconnect
 from flask_cors import CORS
 import logging
@@ -796,6 +796,11 @@ def health_check():
             "error": str(e)
         }), 503
 
+@app.route('/qrcode')
+def qrcode_entry():
+    # 這裡可以隨時改成你想導向的任何網址
+    # 例如導向 Google：
+    return redirect("https://www.google.com")
 
 @app.route('/init_db', methods=['GET'])
 def init_database():
