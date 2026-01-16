@@ -743,11 +743,18 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     <!-- QR Code 統計 -->
                     <div class="col-md-6" style="flex: 1 1 300px;">
                         <div class="card h-100" style="margin-bottom: 0;">
-                            <div class="card-title">即時數據</div>
-                            <div class="card-body text-center" style="padding: 2rem;">
-                                <h5>QR Code 掃描人數</h5>
-                                <div id="embeddedQrCount" style="font-size: 4rem; font-weight: bold; color: #3498db; margin: 1rem 0;">0</div>
-                                <p style="color: #7f8c8d;">即時更新中...</p>
+                            <div class="card-title">
+                                QR Code 掃描統計
+                                <button class="btn btn-danger btn-small" style="float: right; font-size: 0.7rem;" onclick="resetQrCount('all')">全歸零</button>
+                            </div>
+                            <div class="card-body" style="padding: 1rem;">
+                                <div id="qrStatsList">
+                                    <p style="text-align: center;">載入數據中...</p>
+                                </div>
+                                
+                                <p style="color: #7f8c8d; font-size: 0.8rem; text-align: center; margin-top: 1rem;">
+                                    * 數據即時更新
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -1059,44 +1066,99 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             }
         }
         
-        // 處理 QR Code 掃描事件
-        function handleQRScanEvent(data) {
-            const scanData = data.data || {};
-            const timestamp = scanData.timestamp || new Date().toISOString();
-            const clientIp = scanData.client_ip || '未知';
-            const userAgent = scanData.user_agent || '未知';
-            
-            // 格式化時間
-            const timeStr = new Date(timestamp).toLocaleString('zh-TW');
-            
-            // 記錄到日誌
-            addLog(`📱 [QR Code 掃描] 使用者掃描QRcode - IP: ${clientIp} - 時間: ${timeStr}`, 'success');
-            
-            // 顯示瀏覽器通知（如果允許）
-            if (Notification.permission === 'granted') {
-                new Notification('QR Code 掃描通知', {
-                    body: `使用者掃描QRcode\nIP: ${clientIp}\n時間: ${timeStr}`,
-                    icon: '🚕',
-                    tag: 'qr-scan-' + Date.now() // 使用 tag 避免重複通知
-                });
-            } else if (Notification.permission !== 'denied') {
-                // 請求通知權限
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        new Notification('QR Code 掃描通知', {
-                            body: `使用者掃描QRcode\nIP: ${clientIp}\n時間: ${timeStr}`,
-                            icon: '🚕'
-                        });
-                    }
-                });
-            }
-            
-            // 如果當前在儀表板頁面，可以更新統計數據
-            if (currentPage === 'dashboard') {
-                // 可以選擇刷新儀表板或更新特定統計
-                // loadDashboard();
+        // 定義地點對照 (方便前端顯示名稱)
+        const QR_NAMES = {
+            "shibuya": "涉谷十字路",
+            "tokyo_tower": "東京鐵塔",
+            "tokyo_station": "東京車站一番街"
+        };
+
+        // 1. 初始化載入數據
+        async function loadQrStats() {
+            try {
+                const res = await fetch('/api/v1/admin/qr_stats');
+                const data = await res.json();
+                if (data.status === 'success') {
+                    renderQrStats(data.stats);
+                }
+            } catch (e) {
+                console.error("載入 QR 統計失敗", e);
             }
         }
+
+        // 2. 渲染統計列表 HTML
+        function renderQrStats(stats) {
+            const container = document.getElementById('qrStatsList');
+            if (!container) return;
+
+            let html = '<table style="width: 100%;">';
+            
+            // 遍歷所有地點
+            for (const [key, info] of Object.entries(stats)) {
+                // 如果後端傳來的格式是直接 {shibuya: {count: 10...}} 或 {shibuya: 10} 需適配，這裡以 api 回傳結構為準
+                const count = info.count !== undefined ? info.count : info;
+                const name = QR_NAMES[key] || info.name || key;
+                
+                html += `
+                    <tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 10px 0; font-weight: 500;">${name}</td>
+                        <td style="padding: 10px 0; font-size: 1.5rem; color: #3498db; font-weight: bold; text-align: right; width: 80px;">
+                            <span id="qr-count-${key}">${count}</span>
+                        </td>
+                        <td style="padding: 10px 0; text-align: right; width: 60px;">
+                            <button class="btn btn-small" style="background: #f1f2f6; color: #666;" onclick="resetQrCount('${key}')">歸零</button>
+                        </td>
+                    </tr>
+                `;
+            }
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        // 3. 處理 Socket 即時更新
+        // 在 initWebSocket() 或 socket 連接成功後的地方確認有這段:
+        // 注意：如果你之前有寫 socket.on('stats_update', ...)，可以保留或整合，
+        // 但新的後端是發送 'qr_stats_update'
+        if (socket) {
+            socket.on('qr_stats_update', function(data) {
+                // data.counts = { shibuya: 10, tokyo_tower: 5 ... }
+                if (data.reset) {
+                    // 如果是歸零事件，重新載入最準
+                    loadQrStats();
+                } else if (data.counts) {
+                    // 更新畫面上所有的數字
+                    for (const [key, count] of Object.entries(data.counts)) {
+                        const el = document.getElementById(`qr-count-${key}`);
+                        if (el) {
+                            el.innerText = count;
+                            // 加個閃爍特效提示更新
+                            el.style.color = '#e74c3c';
+                            setTimeout(() => el.style.color = '#3498db', 500);
+                        }
+                    }
+                }
+            });
+        }
+
+        // 4. 歸零功能
+        async function resetQrCount(key) {
+            const name = key === 'all' ? "所有數據" : (QR_NAMES[key] || key);
+            if (!confirm(`確定要歸零 [${name}] 的掃描次數嗎？`)) return;
+
+            try {
+                await fetch(`/api/v1/admin/reset_qr/${key}`, { method: 'POST' });
+                // 不用手動重整，socket 會通知
+            } catch (e) {
+                alert("歸零失敗");
+            }
+        }
+
+        // 記得在頁面載入時呼叫初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // ... 原本的初始化 ...
+            loadQrStats(); // 新增這行
+        });
+
         
         // 顯示頁面
         function showPage(pageName,event) {
