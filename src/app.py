@@ -796,7 +796,122 @@ def health_check():
             "error": str(e)
         }), 503
 
-@app.route('/qrcode')
+### 1/16
+
+# ============================================================================
+# QR Code 多地點轉址與統計系統
+# ============================================================================
+
+# 定義地點與目標網址的對照表
+QR_LOCATIONS = {
+    "shibuya": {
+        "name": "涉谷十字路",
+        "url": "https://www.shibuya-scramble-square.com.t.apy.hp.transer.com/"
+    },
+    "tokyo_tower": {
+        "name": "東京鐵塔",
+        "url": "https://zh.tokyotower.co.jp/"
+    },
+    "tokyo_station": {
+        "name": "東京車站一番街",
+        "url": "https://www.tokyoeki-1bangai.co.jp/"
+    }
+}
+
+@app.route('/qr/<location_key>')
+def qr_redirect(location_key):
+    """
+    通用 QR Code 轉址入口
+    路徑範例: /qr/shibuya, /qr/tokyo_tower
+    """
+    # 1. 檢查地點是否有效
+    target = QR_LOCATIONS.get(location_key)
+    
+    # 如果是無效的地點，導回首頁或顯示錯誤
+    if not target:
+        return f"無效的 QR Code: {location_key}", 404
+
+    try:
+        # 2. 更新資料庫計數 (針對該地點 +1)
+        # 資料結構會變成: { "shibuya": 10, "tokyo_tower": 5, ... }
+        db.db[DATABASE_NAME]['system_stats'].update_one(
+            {"_id": "qr_stats"},
+            {"$inc": {f"counts.{location_key}": 1}},  # 只增加該地點的計數
+            upsert=True
+        )
+        
+        # 3. 讀取最新數據以便廣播
+        stats_doc = db.db[DATABASE_NAME]['system_stats'].find_one({"_id": "qr_stats"})
+        current_counts = stats_doc.get("counts", {}) if stats_doc else {}
+        
+        # 4. 廣播給中控台 (包含所有地點的最新數據)
+        socketio.emit('qr_stats_update', {
+            "counts": current_counts,
+            "latest_scan": location_key,  # 告訴前端剛剛是誰被掃了
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        logger.info(f"👉 [{target['name']}] QR Code 被掃描! 目前累計: {current_counts.get(location_key, 0)}")
+    except Exception as e:
+        logger.error(f"記錄 QR Code 掃描時發生錯誤: {e}")
+
+    # 5. 執行跳轉
+    return redirect(target['url'])
+
+@app.route('/api/v1/admin/qr_stats', methods=['GET'])
+def get_qr_stats():
+    """獲取所有 QR Code 統計數據 (初始化用)"""
+    try:
+        stats_doc = db.db[DATABASE_NAME]['system_stats'].find_one({"_id": "qr_stats"})
+        counts = stats_doc.get("counts", {}) if stats_doc else {}
+        
+        # 確保所有定義的地點都有欄位 (即使是 0)
+        result = {}
+        for key, info in QR_LOCATIONS.items():
+            result[key] = {
+                "name": info['name'],
+                "count": counts.get(key, 0)
+            }
+            
+        return jsonify({"status": "success", "stats": result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/v1/admin/reset_qr/<location_key>', methods=['POST'])
+def reset_qr_stat(location_key):
+    """歸零特定地點的計數"""
+    if location_key not in QR_LOCATIONS and location_key != "all":
+        return jsonify({"status": "error", "message": "無效的地點"}), 400
+        
+    try:
+        if location_key == "all":
+            # 全部歸零
+            db.db[DATABASE_NAME]['system_stats'].update_one(
+                {"_id": "qr_stats"},
+                {"$set": {"counts": {}}}
+            )
+        else:
+            # 指定地點歸零
+            db.db[DATABASE_NAME]['system_stats'].update_one(
+                {"_id": "qr_stats"},
+                {"$set": {f"counts.{location_key}": 0}}
+            )
+            
+        # 廣播更新
+        socketio.emit('qr_stats_update', {
+            "reset": True,
+            "target": location_key,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return jsonify({"status": "success", "message": f"{location_key} 已歸零"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+###
+
+
+@app.route('/qrcod')
 def qrcode_entry():
     # 這裡可以隨時改成你想導向的任何網址
     # 例如導向 Google：
