@@ -628,7 +628,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 <h2>設備管理</h2>
                 <div class="card">
                     <div class="card-title">
-                        線上設備
+                        線上設備（MQTT 狀態）
                         <button class="btn btn-primary" style="float: right;" onclick="refreshDevices()">
                             🔄 刷新
                         </button>
@@ -1001,51 +1001,9 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         
 
         
-        // 初始化 WebSocket (使用 Socket.IO)
+        // MQTT 架構下，管理後台改以 HTTP 輪詢取得狀態
         function initWebSocket() {
-            try {
-                // 如果已經有連接，先斷開
-                if (socket) {
-                    socket.disconnect();
-                }
-                
-                // 建立 Socket.IO 連接
-                socket = io(SOCKETIO_URL, {
-                    transports: ['websocket'],
-                    reconnection: true,
-                    reconnectionDelay: 5000,
-                    reconnectionAttempts: Infinity
-                });
-                
-                socket.on('connect', function() {
-                    addLog('Socket.IO 連接已建立 (SID: ' + socket.id + ')', 'info');
-                });
-                
-                socket.on('disconnect', function() {
-                    addLog('Socket.IO 連接已斷開', 'warning');
-                });
-                
-                socket.on('connect_error', function(error) {
-                    addLog('Socket.IO 連接錯誤: ' + error.message, 'error');
-                });
-                
-                socket.on('connection_established', function(data) {
-                    addLog('服務器確認連接: ' + data.message, 'info');
-                });
-                
-                // 監聽設備連接/斷開事件
-                socket.on('device_status', function(data) {
-                    handleWebSocketMessage(data);
-                });
-                
-                // 監聽 QR Code 掃描事件
-                socket.on('qr_scan_event', function(data) {
-                    handleQRScanEvent(data);
-                });
-                
-            } catch (error) {
-                addLog('初始化 Socket.IO 失敗: ' + error.message, 'error');
-            }
+            addLog('目前使用 MQTT 後端，前台改為 HTTP 輪詢模式', 'info');
         }
         
         // 處理 WebSocket 消息
@@ -1507,6 +1465,11 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 const campaigns = await campaignsRes.json();
                 const health = await healthRes.json();
                 const playback = await playbackRes.json();
+
+                window.globalAdsList = ads.advertisements || [];
+
+                //印出廣告 API 的真實資料長相
+                //console.log("偵錯 ads 資料：", ads);
                 
                 // 更新統計
                 document.getElementById('activeDevices').textContent = connections.active_devices?.length || 0;
@@ -1533,7 +1496,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>設備</th>
+                                        <th>設備</th> 
                                         <th>線上狀態</th>
                                         <th>播放模式</th>
                                         <th>播放內容</th>
@@ -1550,7 +1513,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                                 </span>
                                             </td>
                                             <td>${renderPlaybackMode(state.mode)}</td>
-                                            <td>${renderPlaybackMedia(state)}</td>
+                                            <td>${renderPlaybackMedia(state, ads.advertisements || [])}</td>
                                             <td>${formatTimestamp(state.updated_at)}</td>
                                         </tr>
                                     `).join('')}
@@ -2558,13 +2521,18 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         }
 
         function renderDevicePlayback(detail) {
-            if (!detail || !detail.playback_state) {
+            //傳進來的真實資料長怎樣：
+            //console.log("偵錯 detail 資料：", detail);
+            if (!detail) {
                 return '<p>播放狀態：尚無資料</p>';
             }
-            const state = detail.playback_state;
+            const state = detail.shadow?.reported?.playback_state || detail.playback_state;
+            if (!state) {
+                return '<p>播放狀態：尚無資料 (等待設備回報或後端欄位更新)</p>';
+            }
             return `
                 <p>播放狀態：${renderPlaybackMode(state.mode)}</p>
-                <p>播放內容：${renderPlaybackMedia(state)}</p>
+                <p>播放內容：${renderPlaybackMedia(state, window.globalAdsList || [])}</p>
                 <p>更新時間：${formatTimestamp(state.updated_at)}</p>
             `;
         }
@@ -2585,28 +2553,39 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             return mapping[mode] || `${mode}`;
         }
 
-        function renderPlaybackMedia(state) {
+        function renderPlaybackMedia(state, allAds = []) {
             if (!state) {
                 return '-';
             }
 
-            const name = state.advertisement_name || '未指定廣告';
+            let name = state.advertisement_name || '未指定廣告';
             const filename = state.video_filename || '-';
             let playlistInfo = '';
+
+            // 💡 翻譯蒟蒻啟動：如果名稱等於檔名，且有成功傳入廣告大表
+            if (name === filename && filename !== '-' && allAds.length > 0) {
+                // 精準比對：找尋 video_filename 一樣的廣告
+                const matchedAd = allAds.find(ad => ad.video_filename === filename);
+                if (matchedAd && matchedAd.name) {
+                    // 找到了！把醜醜的檔名替換成真正的廣告名稱
+                    name = matchedAd.name;
+                }
+            }
 
             if (Array.isArray(state.playlist) && state.playlist.length > 0) {
                 playlistInfo = `（播放清單 ${state.playlist.length}）`;
             }
 
+            // 💡 狀態輸出排版
             if (state.mode === 'local_playlist') {
-                return '本地播放列表';
+                return `[本地輪播] ${name} <small style="color:#7f8c8d;">${filename}</small> ${playlistInfo}`;
             }
 
             if (state.mode === 'offline') {
                 return '設備離線';
             }
 
-            return `${name} <small style="color:#7f8c8d;">${filename}</small> ${playlistInfo}`;
+            return `${name} <br><small style="color:#7f8c8d; display:block; margin-top:4px;">檔案：${filename}</small> ${playlistInfo}`;
         }
 
         function formatTimestamp(timestamp) {
