@@ -39,7 +39,11 @@ else
 fi
 git push origin "$BRANCH"
 
-echo "=== 2/3 + 3/3 連進 VM 觸發部署 ==="
+echo "=== 2/3 同步 VM 部署腳本 ==="
+scp -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
+  -o ConnectTimeout=20 "$REPO_DIR/vm_deploy.sh" "$ADMIN_USER@$VM_IP:vm_deploy.sh"
+
+echo "=== 3/3 連進 VM 觸發部署 ==="
 ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
   -o ConnectTimeout=20 "$ADMIN_USER@$VM_IP" './vm_deploy.sh'
 

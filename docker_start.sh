@@ -28,7 +28,14 @@ echo ""
 # 進入項目目錄
 cd "$(dirname "$0")"
 
-COMPOSE_ARGS=(-f docker/docker-compose.yml)
+ENV_FILE=docker/.env
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ 找不到 $ENV_FILE"
+    echo "請先執行：cp docker/.env.example docker/.env，再修改成目標環境的設定。"
+    exit 1
+fi
+
+COMPOSE_ARGS=(--env-file "$ENV_FILE" -f docker/docker-compose.yml)
 if [ -n "${COMPOSE_OVERRIDE_FILE:-}" ]; then
     COMPOSE_ARGS+=(-f "$COMPOSE_OVERRIDE_FILE")
 fi

@@ -21,6 +21,14 @@
 
 ## 快速開始
 
+首次啟動先建立本機環境檔：
+
+```bash
+cp docker/.env.example docker/.env
+```
+
+`docker/.env.example` 會進 Git；`docker/.env` 是 Compose 實際讀取的設定，已被 `.gitignore` 排除。
+
 ### 一鍵啟動（推薦）
 
 ```bash
