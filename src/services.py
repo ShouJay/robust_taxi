@@ -40,21 +40,32 @@ class AdDecisionService:
 
         point = CampaignModel.create_point_query(longitude, latitude)
         device_groups = device.get("groups", [])
-        matching_campaigns = self.db.campaigns.find({
+        matching_campaigns = list(self.db.campaigns.find({
+            "status": "active",
             "geo_fence": {"$geoIntersects": {"$geometry": point}},
-            "status": "active"
-        })
+        }))
+        matching_campaigns.extend(self.db.campaigns.find({
+            "status": "active",
+            "geo_scope": "all",
+        }))
 
         eligible = []
         for campaign in matching_campaigns:
             target_groups = campaign.get("target_groups", [])
-            if any(group in target_groups for group in device_groups):
+            if not target_groups or any(group in target_groups for group in device_groups):
                 eligible.append(campaign)
 
         if not eligible:
             return device, None
 
-        selected = max(eligible, key=lambda c: c.get("priority", 0))
+        selected = max(
+            eligible,
+            key=lambda c: (
+                c.get("priority", 0),
+                c.get("updated_at") or c.get("created_at") or "",
+                str(c.get("_id", "")),
+            ),
+        )
         return device, selected
 
     def _resolve_campaign_ads(self, campaign):

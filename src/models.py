@@ -177,6 +177,22 @@ class CampaignModel:
             "current_ad_index": 0,  # 當前播放的廣告索引（用於循環）
             "created_at": datetime.now().isoformat()
         }
+
+    @staticmethod
+    def create_global(campaign_id, name, advertisement_ids, priority, target_groups):
+        """建立不限制地理位置的活動。"""
+        return {
+            "_id": campaign_id,
+            "name": name,
+            "advertisement_ids": advertisement_ids,
+            "advertisement_id": advertisement_ids[0],
+            "priority": priority,
+            "target_groups": target_groups,
+            "status": "active",
+            "geo_scope": "all",
+            "play_mode": "cycle",
+            "created_at": datetime.now().isoformat()
+        }
     
     @staticmethod
     def create_point_query(longitude, latitude):

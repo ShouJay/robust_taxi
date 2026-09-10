@@ -504,6 +504,9 @@
             <button class="sidebar-item" onclick="showPage('devices', event)">
                 <i>📱</i> 設備管理
             </button>
+            <button class="sidebar-item" onclick="showPage('groups', event)">
+                <i>🏷️</i> 群組管理
+            </button>
             <button class="sidebar-item" onclick="showPage('ads', event)">
                 <i>🎬</i> 廣告管理
             </button>
@@ -569,29 +572,7 @@
                 <h2>設備註冊</h2>
                 <div class="card">
                     <div class="card-title">註冊新設備</div>
-                    <form id="registerDeviceForm">
-                        <div class="form-group">
-                            <label class="form-label">設備 ID *</label>
-                            <input type="text" id="newDeviceId" class="form-control" 
-                                   placeholder="例如: taxi-AAB-1234-rooftop" required>
-                            <small style="color: #7f8c8d;">建議格式: taxi-{車牌}-{類型}</small>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">設備類型 *</label>
-                            <select id="newDeviceType" class="form-control">
-                                <option value="rooftop_display">車頂顯示器</option>
-                                <option value="in_car_screen">車內螢幕</option>
-                                <option value="mobile_app">手機 App</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">群組標籤</label>
-                            <input type="text" id="newDeviceGroups" class="form-control" 
-                                   placeholder="輸入標籤，用逗號分隔" value="general">
-                            <small style="color: #7f8c8d;">例如: general, premium, taipei</small>
-                        </div>
-                        <button type="submit" class="btn btn-success">註冊設備</button>
-                    </form>
+                    <button class="btn btn-success" onclick="showRegisterDeviceModal()">➕ 註冊設備</button>
                 </div>
 
                 <div class="card">
@@ -611,13 +592,9 @@
                     <ol style="line-height: 1.8;">
                         <li>在上方表單中填寫設備資訊並點擊「註冊設備」</li>
                         <li>記下分配的設備 ID（例如: taxi-AAB-1234-rooftop）</li>
-                        <li>在 App 端使用以下方式連接：
-                            <pre style="background: #fff; padding: 10px; margin-top: 10px; border-radius: 4px;">
-python tests/test_location_client.py <設備ID> 5
-
-範例:
-python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
-                        </li>
+                        <li>在 App 畫面連點 5 下進入「系統設定」</li>
+                        <li>填入設備 ID、MQTT Broker 位址與 Port、API Server URL</li>
+                        <li>按下「儲存設定」，App 會自動重新連線</li>
                         <li>連接成功後，設備會自動出現在「設備管理」頁面</li>
                     </ol>
                 </div>
@@ -633,9 +610,21 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                             🔄 刷新
                         </button>
                     </div>
+                    <div class="form-group"><label class="form-label">群組篩選</label><select id="deviceGroupFilter" class="form-control" onchange="loadDevices()"><option value="">全部群組</option></select></div>
                     <div id="devicesList">
                         <div class="loader"></div>
                     </div>
+                </div>
+            </div>
+
+            <div id="groupsPage" class="page-content">
+                <h2>群組管理</h2>
+                <div class="card">
+                    <div class="card-title">
+                        群組列表
+                        <button class="btn btn-success" style="float: right;" onclick="createGroup()">➕ 新增群組</button>
+                    </div>
+                    <div id="groupsList"><div class="loader"></div></div>
                 </div>
             </div>
 
@@ -679,6 +668,10 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     <div class="card-title">即時推送廣告</div>
                     <form id="pushForm">
                         <div class="form-group">
+                            <label class="form-label">快速選擇群組</label>
+                            <div id="pushGroupSelector"></div>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">選擇目標設備</label>
                             <div id="deviceSelector">
                                 <p>載入設備中...</p>
@@ -702,6 +695,10 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     <div class="card-title">推送影片下載</div>
                     <form id="downloadForm">
                         <div class="form-group">
+                            <label class="form-label">快速選擇群組</label>
+                            <div id="downloadGroupSelector"></div>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label">選擇目標設備</label>
                             <div id="downloadDeviceSelector">
                                 <p>載入設備中...</p>
@@ -709,9 +706,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                         </div>
                         <div class="form-group">
                             <label class="form-label">選擇要下載的廣告</label>
-                            <select id="downloadAdSelector" class="form-control">
-                                <option value="">選擇廣告...</option>
-                            </select>
+                            <div id="downloadAdSelector"><p>載入廣告中...</p></div>
                         </div>
                         <button type="submit" class="btn btn-primary">推送下載</button>
                     </form>
@@ -781,7 +776,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                             <div class="card-title">警報影片設定 (Screen B)</div>
                             <div class="card-body">
                                 <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                                    <input type="text" id="embeddedVideoInput" class="form-control" placeholder="輸入影片檔名 (如 earthquake_alert.mp4)...">
+                                    <select id="embeddedVideoInput" class="form-control"><option value="">選擇警報影片...</option></select>
                                     <button class="btn btn-primary" onclick="updateVideo()">更新影片設定</button>
                                 </div>
                                 <div style="background-color: #fff3cd; color: #856404; padding: 1rem; border-radius: 4px;">
@@ -813,6 +808,32 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         </main>
     </div>
 
+    <div id="registerDeviceModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('registerDeviceModal')">&times;</span>
+            <h3>註冊新設備</h3>
+            <form id="registerDeviceForm">
+                <div class="form-group"><label class="form-label">設備 ID *</label><input type="text" id="newDeviceId" class="form-control" placeholder="例如: taxi-AAB-1234-rooftop" required></div>
+                <div class="form-group">
+                    <label class="form-label">設備類型 *</label>
+                    <select id="newDeviceType" class="form-control"><option value="rooftop_display">車頂顯示器</option><option value="in_car_screen">車內螢幕</option><option value="mobile_app">手機 App</option></select>
+                </div>
+                <div class="form-group"><label class="form-label">群組標籤（選填）</label><div id="newDeviceGroups"></div><small style="color: #7f8c8d;">未勾選時設備屬於未分類</small></div>
+                <button type="submit" class="btn btn-success">註冊設備</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="editDeviceGroupsModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('editDeviceGroupsModal')">&times;</span>
+            <h3>編輯設備群組</h3>
+            <input type="hidden" id="editingDeviceId">
+            <div class="form-group"><div id="editDeviceGroups"></div></div>
+            <button class="btn btn-success" onclick="saveDeviceGroups()">儲存</button>
+        </div>
+    </div>
+
     <!-- 創建廣告彈窗 -->
     <div id="createAdModal" class="modal">
         <div class="modal-content">
@@ -820,29 +841,8 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             <h3>創建新廣告</h3>
             <form id="createAdForm">
                 <div class="form-group">
-                    <label class="form-label">廣告ID</label>
-                    <input type="text" id="newAdId" class="form-control" placeholder="自動生成">
-                </div>
-                <div class="form-group">
                     <label class="form-label">廣告名稱</label>
                     <input type="text" id="newAdName" class="form-control" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">類型</label>
-                    <select id="newAdType" class="form-control">
-                        <option value="general">一般廣告</option>
-                        <option value="promotion">促銷廣告</option>
-                        <option value="event">活動廣告</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">優先級</label>
-                    <input type="number" id="newAdPriority" class="form-control" min="1" max="10" value="5">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">目標群組</label>
-                    <input type="text" id="newAdGroups" class="form-control" placeholder="輸入標籤，用逗號分隔" value="general">
-                    <small style="color: #7f8c8d;">若有多個群組請以逗號分隔，預設為 general</small>
                 </div>
                 <div class="form-group">
                     <label class="form-label">影片文件 *</label>
@@ -863,12 +863,9 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
     <div id="createCampaignModal" class="modal">
         <div class="modal-content" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
             <span class="close" onclick="closeModal('createCampaignModal')">&times;</span>
-            <h3>創建新活動</h3>
+            <h3 id="campaignModalTitle">創建新活動</h3>
             <form id="createCampaignForm">
-                <div class="form-group">
-                    <label class="form-label">活動ID（選填）</label>
-                    <input type="text" id="newCampaignId" class="form-control" placeholder="自動生成">
-                </div>
+                <input type="hidden" id="editingCampaignId">
                 <div class="form-group">
                     <label class="form-label">活動名稱 *</label>
                     <input type="text" id="newCampaignName" class="form-control" required>
@@ -880,9 +877,14 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 </div>
                 <div class="form-group">
                     <label class="form-label">目標群組</label>
-                    <input type="text" id="newCampaignGroups" class="form-control" placeholder="輸入標籤，用逗號分隔" value="general">
-                    <small style="color: #7f8c8d;">例如: general, premium, taipei</small>
+                    <div id="newCampaignGroups"></div>
+                    <small style="color: #7f8c8d;">未勾選代表所有設備</small>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">投放範圍</label>
+                    <select id="campaignGeoScope" class="form-control" onchange="toggleCampaignGeoFields()"><option value="radius">指定區域</option><option value="all">全區（不限制 GPS）</option></select>
+                </div>
+                <div id="campaignGeoFields">
                 
                 <hr style="margin: 1.5rem 0;">
                 
@@ -918,6 +920,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                         </small>
                     </div>
                 </div>
+                </div>
                 
                 <hr style="margin: 1.5rem 0;">
                 
@@ -930,7 +933,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     <small style="color: #7f8c8d;">可選擇多個廣告，設備會循環播放這些廣告</small>
                 </div>
                 
-                <button type="submit" class="btn btn-success">創建活動</button>
+                <button type="submit" id="campaignSubmitButton" class="btn btn-success">創建活動</button>
             </form>
         </div>
     </div>
@@ -954,6 +957,8 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         let socket = null;
         let sidebar = null;
         let sidebarOverlay = null;
+        let campaignMap = null;
+        let campaignMapMarker = null;
         // API 基礎路徑
         // 自動偵測目前網域與協定
         const API_BASE = window.location.origin + '/api/v1/admin';
@@ -998,6 +1003,40 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
 
         // 當前頁面
         let currentPage = 'dashboard';
+        let groupsCache = [];
+
+        async function loadGroups(force = false) {
+            if (!force && groupsCache.length) return groupsCache;
+            const response = await fetch(API_BASE + '/groups');
+            const data = await response.json();
+            if (data.status !== 'success') throw new Error(data.message || '載入群組失敗');
+            groupsCache = data.groups || [];
+            return groupsCache;
+        }
+
+        function renderGroupCheckboxes(containerId, inputName, selected = []) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            if (!groupsCache.length) {
+                container.innerHTML = '<small style="color:#7f8c8d;">目前沒有群組，可先至群組管理新增</small>';
+                return;
+            }
+            container.innerHTML = groupsCache.map(group => `
+                <label style="display:inline-block;margin:0 16px 8px 0;">
+                    <input type="checkbox" name="${inputName}" value="${group.group_id}" ${selected.includes(group.group_id) ? 'checked' : ''}>
+                    ${group.display_name}
+                </label>
+            `).join('');
+        }
+
+        function checkedValues(inputName) {
+            return Array.from(document.querySelectorAll(`input[name="${inputName}"]:checked`)).map(item => item.value);
+        }
+
+        function groupNames(groupIds) {
+            if (!groupIds || !groupIds.length) return '全部／未分類';
+            return groupIds.map(id => groupsCache.find(group => group.group_id === id)?.display_name || id).join(', ');
+        }
         
 
         
@@ -1155,6 +1194,9 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 case 'devices':
                     loadDevices();
                     break;
+                case 'groups':
+                    loadGroupsPage();
+                    break;
                 case 'ads':
                     loadAds();
                     break;
@@ -1177,16 +1219,18 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         async function loadDualControlPage() {
             try {
                 // 獲取初始狀態
-                const [statusRes, statsRes] = await Promise.all([
+                const [statusRes, adsRes] = await Promise.all([
                     fetch('/api/v2/control/status'),
-                    fetch('/api/v2/stats/qr')
+                    fetch(API_BASE + '/advertisements/available?with_files=true')
                 ]);
                 
                 const statusData = await statusRes.json();
-                const statsData = await statsRes.json();
+                const adsData = await adsRes.json();
 
                 updateDualControlUI(statusData);
-                document.getElementById('embeddedQrCount').innerText = statsData.count;
+                document.getElementById('embeddedVideoInput').innerHTML = '<option value="">選擇警報影片...</option>' +
+                    (adsData.advertisements || []).map(ad => `<option value="${ad.video_filename}">${ad.name} (${ad.video_filename})</option>`).join('');
+                loadQrStats();
                 
                 // 確保 Socket 監聽器已設置 (重用現有的 socket)
                 if(socket) {
@@ -1300,10 +1344,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         async function registerDevice() {
             const deviceId = document.getElementById('newDeviceId').value.trim();
             const deviceType = document.getElementById('newDeviceType').value;
-            const groupsInput = document.getElementById('newDeviceGroups').value;
-            
-            // 解析群組標籤
-            const groups = groupsInput.split(',').map(g => g.trim()).filter(g => g);
+            const groups = checkedValues('newDeviceGroupOptions');
             
             if (!deviceId) {
                 alert('請輸入設備 ID');
@@ -1317,7 +1358,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     body: JSON.stringify({
                         device_id: deviceId,
                         device_type: deviceType,
-                        groups: groups.length > 0 ? groups : ['general']
+                        groups: groups
                     })
                 });
                 
@@ -1325,11 +1366,11 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 
                 if (data.status === 'success') {
                     addLog(`設備註冊成功: ${deviceId}`, 'success');
-                    alert(`✅ 設備註冊成功！\n\n設備 ID: ${deviceId}\n\n請使用以下命令連接：\npython tests/test_location_client.py ${deviceId} 5`);
+                    alert(`✅ 設備註冊成功！\n\n設備 ID: ${deviceId}\n\n請在 App 系統設定填入此設備 ID。`);
                     
                     // 重置表單
                     document.getElementById('registerDeviceForm').reset();
-                    document.getElementById('newDeviceGroups').value = 'general';
+                    closeModal('registerDeviceModal');
                     
                     // 刷新設備列表
                     loadRegisteredDevices();
@@ -1341,10 +1382,17 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 alert('設備註冊失敗: ' + error.message);
             }
         }
+
+        async function showRegisterDeviceModal() {
+            await loadGroups();
+            renderGroupCheckboxes('newDeviceGroups', 'newDeviceGroupOptions');
+            document.getElementById('registerDeviceModal').style.display = 'block';
+        }
         
         // 載入已註冊設備列表
         async function loadRegisteredDevices() {
             try {
+                await loadGroups();
                 const response = await fetch(API_BASE + '/devices');
                 const data = await response.json();
                 
@@ -1368,7 +1416,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                     <tr>
                                         <td><strong>${device.device_id}</strong></td>
                                         <td>${getDeviceTypeLabel(device.device_type)}</td>
-                                        <td>${device.groups ? device.groups.join(', ') : '-'}</td>
+                                        <td>${device.groups && device.groups.length ? groupNames(device.groups) : '未分類'}</td>
                                         <td>
                                             <span class="device-status ${device.is_online ? 'status-online' : 'status-offline'}">
                                                 ${device.is_online ? '線上' : '離線'}
@@ -1378,6 +1426,9 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                         <td>
                                             <button class="btn btn-primary btn-small" onclick="copyDeviceId('${device.device_id}')">
                                                 複製 ID
+                                            </button>
+                                            <button class="btn btn-primary btn-small" onclick='editDeviceGroups(${JSON.stringify(device.device_id)}, ${JSON.stringify(device.groups || [])})'>
+                                                編輯群組
                                             </button>
                                             <button class="btn btn-danger btn-small" onclick="deleteDevice('${device.device_id}')">
                                                 刪除
@@ -1395,6 +1446,66 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 addLog('載入設備列表失敗: ' + error.message, 'error');
                 document.getElementById('registeredDevicesList').innerHTML = '<p>載入失敗</p>';
             }
+        }
+
+        async function editDeviceGroups(deviceId, selectedGroups) {
+            await loadGroups();
+            document.getElementById('editingDeviceId').value = deviceId;
+            renderGroupCheckboxes('editDeviceGroups', 'editDeviceGroupOptions', selectedGroups);
+            document.getElementById('editDeviceGroupsModal').style.display = 'block';
+        }
+
+        async function saveDeviceGroups() {
+            const deviceId = document.getElementById('editingDeviceId').value;
+            const response = await fetch(API_BASE + `/devices/${encodeURIComponent(deviceId)}`, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({groups: checkedValues('editDeviceGroupOptions')})
+            });
+            const data = await response.json();
+            if (data.status !== 'success') return alert(data.message || '更新失敗');
+            closeModal('editDeviceGroupsModal');
+            loadRegisteredDevices();
+            if (currentPage === 'devices') loadDevices();
+        }
+
+        async function loadGroupsPage() {
+            try {
+                await loadGroups(true);
+                const container = document.getElementById('groupsList');
+                if (!groupsCache.length) return container.innerHTML = '<p>目前沒有群組</p>';
+                container.innerHTML = `<table><thead><tr><th>群組名稱</th><th>設備數</th><th>活動數</th><th>操作</th></tr></thead><tbody>${groupsCache.map(group => `
+                    <tr><td>${group.display_name}</td><td>${group.device_count}</td><td>${group.campaign_count}</td><td>
+                    <button class="btn btn-primary btn-small" onclick='renameGroup(${JSON.stringify(group.group_id)}, ${JSON.stringify(group.display_name)})'>編輯</button>
+                    <button class="btn btn-danger btn-small" onclick='deleteGroup(${JSON.stringify(group.group_id)})'>刪除</button></td></tr>`).join('')}</tbody></table>`;
+            } catch (error) {
+                document.getElementById('groupsList').innerHTML = `<p>載入失敗：${error.message}</p>`;
+            }
+        }
+
+        async function createGroup() {
+            const displayName = prompt('請輸入群組名稱');
+            if (!displayName?.trim()) return;
+            const response = await fetch(API_BASE + '/groups', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({display_name: displayName.trim()})});
+            const data = await response.json();
+            if (data.status !== 'success') return alert(data.message || '新增失敗');
+            loadGroupsPage();
+        }
+
+        async function renameGroup(groupId, currentName) {
+            const displayName = prompt('修改群組名稱', currentName);
+            if (!displayName?.trim() || displayName.trim() === currentName) return;
+            const response = await fetch(API_BASE + `/groups/${groupId}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({display_name: displayName.trim()})});
+            const data = await response.json();
+            if (data.status !== 'success') return alert(data.message || '更新失敗');
+            loadGroupsPage();
+        }
+
+        async function deleteGroup(groupId) {
+            if (!confirm('確定要刪除此群組嗎？')) return;
+            const response = await fetch(API_BASE + `/groups/${groupId}`, {method:'DELETE'});
+            const data = await response.json();
+            if (data.status !== 'success') return alert(data.message || '刪除失敗');
+            loadGroupsPage();
         }
         
         // 複製設備 ID 到剪貼簿
@@ -1533,6 +1644,11 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         // 載入設備列表
         async function loadDevices() {
             try {
+                await loadGroups();
+                const groupFilter = document.getElementById('deviceGroupFilter');
+                const previousFilter = groupFilter.value;
+                groupFilter.innerHTML = '<option value="">全部群組</option><option value="__none__">未分類</option>' + groupsCache.map(group => `<option value="${group.group_id}">${group.display_name}</option>`).join('');
+                groupFilter.value = previousFilter;
                 const [connectionsRes, devicesRes] = await Promise.all([
                     fetch(API_BASE + '/connections'),
                     fetch(API_BASE + '/devices')
@@ -1553,8 +1669,13 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 
                 const devicesList = document.getElementById('devicesList');
                 
-                if (connectionsData.active_devices && connectionsData.active_devices.length > 0) {
-                    devicesList.innerHTML = connectionsData.active_devices.map(device => {
+                const selectedGroup = groupFilter.value;
+                const visibleDevices = (connectionsData.active_devices || []).filter(device => {
+                    const groups = (deviceMeta[device.device_id] || {}).groups || [];
+                    return !selectedGroup || (selectedGroup === '__none__' ? groups.length === 0 : groups.includes(selectedGroup));
+                });
+                if (visibleDevices.length > 0) {
+                    devicesList.innerHTML = visibleDevices.map(device => {
                         const detail = deviceMeta[device.device_id] || {};
                         const locationHtml = renderDeviceLocation(detail);
                         const playbackHtml = renderDevicePlayback(detail);
@@ -1564,14 +1685,12 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                 <h4>${device.device_id}</h4>
                                 <p>連接時間: ${new Date(device.connected_at).toLocaleString('zh-TW')}</p>
                                 <p>最後活動: ${new Date(device.last_activity).toLocaleString('zh-TW')}</p>
+                                <p>群組: ${detail.groups && detail.groups.length ? groupNames(detail.groups) : '未分類'}</p>
                                 ${locationHtml}
                                 ${playbackHtml}
                             </div>
                             <div>
                                 <span class="device-status status-online">線上</span>
-                                <button class="btn btn-primary btn-small" onclick="pushToDevice('${device.device_id}')">
-                                    推送
-                                </button>
                             </div>
                         </div>
                     `;
@@ -1597,7 +1716,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
                                     <th>名稱</th>
                                     <th>文件名</th>
                                     <th>大小</th>
@@ -1607,7 +1725,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                             <tbody>
                                 ${data.advertisements.map(ad => `
                                     <tr>
-                                        <td>${ad.advertisement_id}</td>
                                         <td>${ad.name}</td>
                                         <td>${ad.video_filename || '-'}</td>
                                         <td>${ad.file_size ? formatFileSize(ad.file_size) : '-'}</td>
@@ -1632,6 +1749,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         // 載入活動列表
         async function loadCampaigns() {
             try {
+                await loadGroups();
                 const response = await fetch(API_BASE + '/campaigns?status=active');
                 const data = await response.json();
                 
@@ -1642,7 +1760,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
                                     <th>名稱</th>
                                     <th>廣告列表</th>
                                     <th>中心位置</th>
@@ -1678,22 +1795,22 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                                         centerText = '-';
                                     }
                                     
-                                    const radius = campaign.radius_meters ? `${campaign.radius_meters} 公尺` : '-';
+                                    if (campaign.geo_scope === 'all') centerText = '全區';
+                                    const radius = campaign.geo_scope === 'all' ? '不限' : (campaign.radius_meters ? `${campaign.radius_meters} 公尺` : '-');
                                     const ads = campaign.advertisement_ids || (campaign.advertisement_id ? [campaign.advertisement_id] : []);
                                     const adsText = ads.length > 0 ? `${ads.length} 個廣告` : '-';
                                     
                                     return `
                                         <tr>
-                                            <td>${campaign.campaign_id}</td>
                                             <td><strong>${campaign.name}</strong></td>
                                             <td>${adsText}</td>
                                             <td>${centerText}</td>
                                             <td>${radius}</td>
                                             <td>${campaign.priority || '-'}</td>
-                                            <td>${campaign.target_groups ? campaign.target_groups.join(', ') : '-'}</td>
+                                            <td>${campaign.target_groups && campaign.target_groups.length ? groupNames(campaign.target_groups) : '全部設備'}</td>
                                             <td>
-                                                <button class="btn btn-primary btn-small" onclick="viewCampaignDetail('${campaign.campaign_id}')">
-                                                    查看
+                                                <button class="btn btn-primary btn-small" onclick="editCampaign('${campaign.campaign_id}')">
+                                                    編輯
                                                 </button>
                                                 <button class="btn btn-danger btn-small" style="margin-left: 0.5rem;" onclick="deleteCampaign('${campaign.campaign_id}')">
                                                     刪除
@@ -1716,6 +1833,8 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         // 載入推送頁面
         async function loadPushPage() {
             try {
+                await loadGroups();
+                renderGroupCheckboxes('pushGroupSelector', 'pushGroups');
                 // 載入設備列表
                 const devicesRes = await fetch(API_BASE + '/connections');
                 const devicesData = await devicesRes.json();
@@ -1749,6 +1868,8 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         // 載入下載頁面
         async function loadDownloadPage() {
             try {
+                await loadGroups();
+                renderGroupCheckboxes('downloadGroupSelector', 'downloadGroups');
                 // 載入設備列表
                 const devicesRes = await fetch(API_BASE + '/connections');
                 const devicesData = await devicesRes.json();
@@ -1770,10 +1891,9 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 const adsData = await adsRes.json();
                 
                 const adSelector = document.getElementById('downloadAdSelector');
-                adSelector.innerHTML = '<option value="">選擇廣告...</option>' +
-                    adsData.advertisements.map(ad => 
-                        `<option value="${ad.advertisement_id}">${ad.name} (${formatFileSize(ad.file_size)})</option>`
-                    ).join('');
+                adSelector.innerHTML = (adsData.advertisements || []).map(ad => `
+                    <label style="display:block;padding:5px;"><input type="checkbox" name="downloadAds" value="${ad.advertisement_id}"> ${ad.name} (${formatFileSize(ad.file_size)})</label>
+                `).join('') || '<p>沒有可下載的廣告</p>';
             } catch (error) {
                 addLog('載入下載頁面失敗: ' + error.message, 'error');
             }
@@ -1822,8 +1942,15 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         
         // 顯示創建活動彈窗
         async function showCreateCampaignModal() {
-            // 載入廣告列表
             try {
+                document.getElementById('createCampaignForm').reset();
+                document.getElementById('editingCampaignId').value = '';
+                document.getElementById('campaignModalTitle').textContent = '創建新活動';
+                document.getElementById('campaignSubmitButton').textContent = '創建活動';
+                document.getElementById('campaignGeoScope').value = 'radius';
+                document.getElementById('radiusMeters').value = '500';
+                await loadGroups();
+                renderGroupCheckboxes('newCampaignGroups', 'campaignGroups');
                 const response = await fetch(API_BASE + '/advertisements?status=active');
                 const data = await response.json();
                 
@@ -1844,12 +1971,45 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             }
             
             document.getElementById('createCampaignModal').style.display = 'block';
+            toggleCampaignGeoFields();
             setTimeout(() => {
                 initCampaignMap();
             }, 50);
         }
+
+        function toggleCampaignGeoFields() {
+            const isGlobal = document.getElementById('campaignGeoScope').value === 'all';
+            document.getElementById('campaignGeoFields').style.display = isGlobal ? 'none' : 'block';
+            ['centerLongitude', 'centerLatitude', 'radiusMeters'].forEach(id => document.getElementById(id).required = !isGlobal);
+        }
+
+        async function editCampaign(campaignId) {
+            await showCreateCampaignModal();
+            const response = await fetch(API_BASE + `/campaigns/${campaignId}`);
+            const data = await response.json();
+            if (data.status !== 'success') return alert(data.message || '載入活動失敗');
+            const campaign = data.campaign;
+            document.getElementById('editingCampaignId').value = campaignId;
+            document.getElementById('campaignModalTitle').textContent = '編輯活動';
+            document.getElementById('campaignSubmitButton').textContent = '儲存變更';
+            document.getElementById('newCampaignName').value = campaign.name || '';
+            document.getElementById('newCampaignPriority').value = campaign.priority || 5;
+            document.getElementById('campaignGeoScope').value = campaign.geo_scope === 'all' ? 'all' : 'radius';
+            renderGroupCheckboxes('newCampaignGroups', 'campaignGroups', campaign.target_groups || []);
+            const selectedAds = campaign.advertisement_ids || (campaign.advertisement_id ? [campaign.advertisement_id] : []);
+            document.querySelectorAll('input[name="campaignAds"]').forEach(input => input.checked = selectedAds.includes(input.value));
+            const coordinates = campaign.center_location?.coordinates || [];
+            if (coordinates.length >= 2) {
+                document.getElementById('centerLongitude').value = coordinates[0];
+                document.getElementById('centerLatitude').value = coordinates[1];
+            }
+            document.getElementById('radiusMeters').value = campaign.radius_meters || 500;
+            toggleCampaignGeoFields();
+            updateMapFromInputs();
+        }
         
         function initCampaignMap() {
+            if (typeof L === 'undefined') return;
             const defaultLng = parseFloat(document.getElementById('centerLongitude').value) || 121.5645;
             const defaultLat = parseFloat(document.getElementById('centerLatitude').value) || 25.0330;
             const initialCoords = [defaultLat, defaultLng];
@@ -1940,17 +2100,15 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
 
         // 創建活動
         async function createCampaign() {
-            const campaignId = document.getElementById('newCampaignId').value.trim();
+            const campaignId = document.getElementById('editingCampaignId').value;
             const campaignName = document.getElementById('newCampaignName').value.trim();
             const priority = parseInt(document.getElementById('newCampaignPriority').value) || 5;
-            const groupsInput = document.getElementById('newCampaignGroups').value.trim();
+            const geoScope = document.getElementById('campaignGeoScope').value;
             const centerLongitude = parseFloat(document.getElementById('centerLongitude').value);
             const centerLatitude = parseFloat(document.getElementById('centerLatitude').value);
             const radiusMeters = parseInt(document.getElementById('radiusMeters').value);
-            
-            // 獲取選中的廣告
-            const selectedAds = Array.from(document.querySelectorAll('input[name="campaignAds"]:checked'))
-                .map(cb => cb.value);
+            const selectedAds = checkedValues('campaignAds');
+            const groups = checkedValues('campaignGroups');
             
             // 驗證
             if (!campaignName) {
@@ -1958,12 +2116,12 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 return;
             }
             
-            if (isNaN(centerLongitude) || isNaN(centerLatitude)) {
+            if (geoScope === 'radius' && (isNaN(centerLongitude) || isNaN(centerLatitude))) {
                 alert('請輸入有效的GPS座標');
                 return;
             }
             
-            if (isNaN(radiusMeters) || radiusMeters < 10) {
+            if (geoScope === 'radius' && (isNaN(radiusMeters) || radiusMeters < 10)) {
                 alert('請輸入有效的範圍半徑（至少10公尺）');
                 return;
             }
@@ -1973,41 +2131,29 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 return;
             }
             
-            // 解析群組標籤
-            const groups = groupsInput.split(',').map(g => g.trim()).filter(g => g);
-            
             try {
-                const response = await fetch(API_BASE + '/campaigns', {
-                    method: 'POST',
+                const payload = {
+                    name: campaignName,
+                    advertisement_ids: selectedAds,
+                    priority: priority,
+                    target_groups: groups,
+                    geo_scope: geoScope,
+                    radius_meters: radiusMeters
+                };
+                if (geoScope === 'radius') payload.center_location = {longitude: centerLongitude, latitude: centerLatitude};
+                const response = await fetch(API_BASE + (campaignId ? `/campaigns/${campaignId}` : '/campaigns'), {
+                    method: campaignId ? 'PUT' : 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        campaign_id: campaignId || undefined,
-                        name: campaignName,
-                        advertisement_ids: selectedAds,
-                        priority: priority,
-                        target_groups: groups.length > 0 ? groups : ['general'],
-                        center_location: {
-                            longitude: centerLongitude,
-                            latitude: centerLatitude
-                        },
-                        radius_meters: radiusMeters
-                    })
+                    body: JSON.stringify(payload)
                 });
                 
                 const data = await response.json();
                 
                 if (data.status === 'success') {
-                    addLog(`活動創建成功: ${data.campaign_id}`, 'success');
-                    alert('✅ 活動創建成功！\n\n活動ID: ' + data.campaign_id + '\n\n當設備進入此範圍時，會自動下載並循環播放選中的廣告。');
+                    addLog(campaignId ? `活動已更新: ${campaignId}` : `活動創建成功: ${data.campaign_id}`, 'success');
+                    alert(campaignId ? '✅ 活動已更新！' : '✅ 活動創建成功！');
                     closeModal('createCampaignModal');
-                    
-                    // 重置表單
                     document.getElementById('createCampaignForm').reset();
-                    document.getElementById('newCampaignGroups').value = 'general';
-                    document.getElementById('newCampaignPriority').value = '5';
-                    document.getElementById('radiusMeters').value = '500';
-                    
-                    // 刷新活動列表
                     loadCampaigns();
                 } else {
                     throw new Error(data.message || '創建失敗');
@@ -2108,9 +2254,10 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         async function pushAdvertisement() {
             const selectedDevices = Array.from(document.querySelectorAll('input[name="devices"]:checked'))
                 .map(cb => cb.value);
+            const selectedGroups = checkedValues('pushGroups');
             const adId = document.getElementById('adSelector').value;
             
-            if (selectedDevices.length === 0 || !adId) {
+            if ((selectedDevices.length === 0 && selectedGroups.length === 0) || !adId) {
                 alert('請選擇設備和廣告');
                 return;
             }
@@ -2121,6 +2268,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         target_device_ids: selectedDevices,
+                        target_group_ids: selectedGroups,
                         advertisement_id: adId
                     })
                 });
@@ -2142,20 +2290,22 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         async function pushDownload() {
             const selectedDevices = Array.from(document.querySelectorAll('input[name="downloadDevices"]:checked'))
                 .map(cb => cb.value);
-            const adId = document.getElementById('downloadAdSelector').value;
+            const selectedGroups = checkedValues('downloadGroups');
+            const advertisementIds = checkedValues('downloadAds');
             
-            if (selectedDevices.length === 0 || !adId) {
+            if ((selectedDevices.length === 0 && selectedGroups.length === 0) || advertisementIds.length === 0) {
                 alert('請選擇設備和廣告');
                 return;
             }
             
             try {
-                const response = await fetch(API_BASE + '/push/download', {
+                const response = await fetch(API_BASE + '/push/batch', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         target_device_ids: selectedDevices,
-                        advertisement_id: adId,
+                        target_group_ids: selectedGroups,
+                        advertisement_ids: advertisementIds,
                         priority: 'normal',
                         download_mode: 'chunked'
                     })
@@ -2163,7 +2313,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 
                 const data = await response.json();
                 if (data.status === 'success') {
-                    addLog(`下載推送成功: ${data.results.sent.length} 個設備`, 'success');
+                    addLog(`下載推送完成: ${data.summary.total_sent} 次傳送`, 'success');
                     alert('下載推送成功！');
                 } else {
                     throw new Error(data.message);
@@ -2176,15 +2326,7 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         
         // 創建廣告（含影片上傳）
         async function createAdvertisement() {
-            const adIdInput = document.getElementById('newAdId').value.trim();
             const adName = document.getElementById('newAdName').value.trim();
-            const adType = document.getElementById('newAdType').value;
-            const adPriority = parseInt(document.getElementById('newAdPriority').value, 10) || 5;
-            const groupsInput = document.getElementById('newAdGroups').value;
-            const targetGroups = groupsInput
-                .split(',')
-                .map(g => g.trim())
-                .filter(g => g);
             const fileInput = document.getElementById('newAdFile');
             const file = fileInput.files[0];
             const progressContainer = document.getElementById('uploadProgress');
@@ -2215,10 +2357,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                     total_chunks: totalChunks,
                     name: adName
                 };
-                if (adIdInput) {
-                    initPayload.advertisement_id = adIdInput;
-                }
-                
                 const initRes = await fetch(API_BASE + '/videos/chunked/init', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2271,15 +2409,12 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 
                 const createdAdId = completeData.video_info.advertisement_id;
                 
-                // Step 4. 更新廣告屬性（類型、優先級、群組等）
+                // Step 4. 更新廣告名稱與狀態
                 const updateRes = await fetch(API_BASE + `/advertisements/${createdAdId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         name: adName,
-                        type: adType,
-                        priority: adPriority,
-                        target_groups: targetGroups.length > 0 ? targetGroups : ['general'],
                         status: 'active'
                     })
                 });
@@ -2292,7 +2427,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
                 alert('廣告與影片已成功建立！');
                 
                 document.getElementById('createAdForm').reset();
-                document.getElementById('newAdGroups').value = 'general';
                 if (progressContainer) {
                     progressContainer.style.display = 'none';
                 }
@@ -2339,34 +2473,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
         function refreshDevices() {
             loadDevices();
             addLog('設備列表已刷新', 'info');
-        }
-        
-        // 推送到單個設備
-        async function pushToDevice(deviceId) {
-            const adId = prompt('請輸入要推送的廣告ID:');
-            if (!adId) return;
-            
-            try {
-                const response = await fetch(API_BASE + '/override', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        target_device_ids: [deviceId],
-                        advertisement_id: adId
-                    })
-                });
-                
-                const data = await response.json();
-                if (data.status === 'success') {
-                    addLog(`推送成功到設備: ${deviceId}`, 'success');
-                    alert('推送成功！');
-                } else {
-                    throw new Error(data.message);
-                }
-            } catch (error) {
-                addLog('推送失敗: ' + error.message, 'error');
-                alert('推送失敗: ' + error.message);
-            }
         }
         
         // 更新進度條
@@ -2456,10 +2562,6 @@ python tests/test_location_client.py taxi-AAB-1234-rooftop 5</pre>
             const form = document.getElementById('createAdForm');
             if (form) {
                 form.reset();
-            }
-            const groupsInput = document.getElementById('newAdGroups');
-            if (groupsInput) {
-                groupsInput.value = 'general';
             }
             const progressContainer = document.getElementById('uploadProgress');
             if (progressContainer) {

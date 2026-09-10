@@ -11,9 +11,11 @@ import os
 import uuid
 import json
 import hashlib
+import re
 from werkzeug.utils import secure_filename
 
 from src.config import UPLOAD_ROOT
+from src.models import CampaignModel, DeviceModel
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,116 @@ def init_admin_api(
             upsert=False
         )
         mqtt_publisher.publish_desired(device_id, desired_payload)
+
+    def normalize_group_ids(value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("群組必須是陣列")
+        return list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+
+    def validate_group_ids(group_ids):
+        if not group_ids:
+            return
+        found = {group["_id"] for group in db.groups.find({"_id": {"$in": group_ids}})}
+        missing = [group_id for group_id in group_ids if group_id not in found]
+        if missing:
+            raise ValueError(f"找不到群組: {', '.join(missing)}")
+
+    def resolve_target_device_ids(data):
+        device_ids = normalize_group_ids(data.get('target_device_ids', []))
+        group_ids = normalize_group_ids(data.get('target_group_ids', []))
+        validate_group_ids(group_ids)
+        if group_ids:
+            grouped = db.devices.find({"groups": {"$in": group_ids}}, {"_id": 1})
+            device_ids.extend(device["_id"] for device in grouped)
+        return list(dict.fromkeys(device_ids))
+
+    # 將既有設備/活動使用中的舊標籤納入群組目錄，避免升級後選單空白。
+    existing_group_ids = set()
+    for source in (db.devices, db.campaigns):
+        field = "groups" if source is db.devices else "target_groups"
+        for value in source.distinct(field):
+            if isinstance(value, str) and value.strip():
+                existing_group_ids.add(value.strip())
+    for group_id in existing_group_ids:
+        db.groups.update_one(
+            {"_id": group_id},
+            {"$setOnInsert": {
+                "display_name": group_id,
+                "status": "active",
+                "created_at": datetime.now().isoformat(),
+            }},
+            upsert=True,
+        )
+
+    # ========================================================================
+    # 群組管理 API
+    # ========================================================================
+
+    @admin_api.route('/groups', methods=['GET'])
+    def get_groups():
+        groups = list(db.groups.find({"status": {"$ne": "deleted"}}).sort("display_name", 1))
+        for group in groups:
+            group['group_id'] = group.pop('_id')
+            group['device_count'] = db.devices.count_documents({"groups": group['group_id']})
+            group['campaign_count'] = db.campaigns.count_documents({"target_groups": group['group_id']})
+        return jsonify({"status": "success", "groups": groups, "total": len(groups)}), 200
+
+    @admin_api.route('/groups', methods=['POST'])
+    def create_group():
+        data = request.get_json() or {}
+        display_name = str(data.get('display_name', '')).strip()
+        if not display_name:
+            return jsonify({"status": "error", "message": "群組名稱不能為空"}), 400
+        exact_name = f"^{re.escape(display_name)}$"
+        if db.groups.find_one({"display_name": {"$regex": exact_name, "$options": "i"}}):
+            return jsonify({"status": "error", "message": "群組名稱已存在"}), 409
+        group_id = f"grp-{uuid.uuid4().hex[:8]}"
+        now = datetime.now().isoformat()
+        db.groups.insert_one({
+            "_id": group_id,
+            "display_name": display_name,
+            "status": "active",
+            "created_at": now,
+            "updated_at": now,
+        })
+        return jsonify({"status": "success", "group_id": group_id, "message": "群組已新增"}), 201
+
+    @admin_api.route('/groups/<group_id>', methods=['PUT'])
+    def update_group(group_id):
+        data = request.get_json() or {}
+        display_name = str(data.get('display_name', '')).strip()
+        if not display_name:
+            return jsonify({"status": "error", "message": "群組名稱不能為空"}), 400
+        if not db.groups.find_one({"_id": group_id}):
+            return jsonify({"status": "error", "message": "群組不存在"}), 404
+        exact_name = f"^{re.escape(display_name)}$"
+        duplicate = db.groups.find_one({
+            "_id": {"$ne": group_id},
+            "display_name": {"$regex": exact_name, "$options": "i"},
+        })
+        if duplicate:
+            return jsonify({"status": "error", "message": "群組名稱已存在"}), 409
+        db.groups.update_one(
+            {"_id": group_id},
+            {"$set": {"display_name": display_name, "updated_at": datetime.now().isoformat()}},
+        )
+        return jsonify({"status": "success", "message": "群組已更新"}), 200
+
+    @admin_api.route('/groups/<group_id>', methods=['DELETE'])
+    def delete_group(group_id):
+        if not db.groups.find_one({"_id": group_id}):
+            return jsonify({"status": "error", "message": "群組不存在"}), 404
+        device_count = db.devices.count_documents({"groups": group_id})
+        campaign_count = db.campaigns.count_documents({"target_groups": group_id})
+        if device_count or campaign_count:
+            return jsonify({
+                "status": "error",
+                "message": f"群組仍被 {device_count} 台設備、{campaign_count} 個活動使用",
+            }), 409
+        db.groups.delete_one({"_id": group_id})
+        return jsonify({"status": "success", "message": "群組已刪除"}), 200
     
     # ========================================================================
     # 連接與設備管理 API
@@ -309,6 +421,28 @@ def init_admin_api(
                 "status": "error",
                 "message": "刪除設備失敗"
             }), 500
+
+    @admin_api.route('/devices/<device_id>', methods=['PUT'])
+    def update_device(device_id):
+        """更新設備類型與所屬群組。"""
+        data = request.get_json() or {}
+        if not db.devices.find_one({"_id": device_id}):
+            return jsonify({"status": "error", "message": f"設備 {device_id} 不存在"}), 404
+        update_data = {}
+        try:
+            if 'groups' in data:
+                group_ids = normalize_group_ids(data['groups'])
+                validate_group_ids(group_ids)
+                update_data['groups'] = group_ids
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        if 'device_type' in data:
+            update_data['device_type'] = data['device_type']
+        if not update_data:
+            return jsonify({"status": "error", "message": "沒有可更新的欄位"}), 400
+        update_data['updated_at'] = datetime.now().isoformat()
+        db.devices.update_one({"_id": device_id}, {"$set": update_data})
+        return jsonify({"status": "success", "message": "設備已更新"}), 200
     
     @admin_api.route('/devices/playback', methods=['GET'])
     def get_devices_playback():
@@ -648,8 +782,20 @@ def init_admin_api(
             campaign_id = data.get('campaign_id')
             name = data.get('name')
             advertisement_ids = data.get('advertisement_ids', [])
-            priority = data.get('priority', 5)
-            target_groups = data.get('target_groups', ['general'])
+            if not isinstance(advertisement_ids, list):
+                return jsonify({"status": "error", "message": "advertisement_ids 必須是陣列"}), 400
+            try:
+                priority = int(data.get('priority', 5))
+            except (TypeError, ValueError):
+                return jsonify({"status": "error", "message": "優先級必須是整數"}), 400
+            if not 1 <= priority <= 10:
+                return jsonify({"status": "error", "message": "優先級必須介於 1 到 10"}), 400
+            try:
+                target_groups = normalize_group_ids(data.get('target_groups', []))
+                validate_group_ids(target_groups)
+            except ValueError as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
+            geo_scope = data.get('geo_scope', 'radius')
             center_location = data.get('center_location')
             radius_meters = data.get('radius_meters', 500)
             
@@ -666,27 +812,34 @@ def init_admin_api(
                     "message": "缺少必要欄位: advertisement_ids（至少需要一個廣告）"
                 }), 400
             
-            if not center_location:
+            if geo_scope not in ('all', 'radius'):
+                return jsonify({"status": "error", "message": "geo_scope 必須是 all 或 radius"}), 400
+
+            if geo_scope == 'radius' and not center_location:
                 return jsonify({
                     "status": "error",
                     "message": "缺少必要欄位: center_location"
                 }), 400
             
-            center_longitude = center_location.get('longitude')
-            center_latitude = center_location.get('latitude')
+            center_longitude = center_location.get('longitude') if center_location else None
+            center_latitude = center_location.get('latitude') if center_location else None
             
-            if center_longitude is None or center_latitude is None:
+            if geo_scope == 'radius' and (center_longitude is None or center_latitude is None):
                 return jsonify({
                     "status": "error",
                     "message": "center_location 必須包含 longitude 和 latitude"
                 }), 400
             
             # 驗證經緯度範圍
-            if not (-180 <= center_longitude <= 180) or not (-90 <= center_latitude <= 90):
+            if geo_scope == 'radius' and (
+                not (-180 <= center_longitude <= 180) or not (-90 <= center_latitude <= 90)
+            ):
                 return jsonify({
                     "status": "error",
                     "message": "經緯度範圍無效"
                 }), 400
+            if geo_scope == 'radius' and not 10 <= radius_meters <= 10000:
+                return jsonify({"status": "error", "message": "範圍半徑必須介於 10 到 10000 公尺"}), 400
             
             # 驗證廣告是否存在
             for ad_id in advertisement_ids:
@@ -712,16 +865,22 @@ def init_admin_api(
             
             # 創建活動
             from src.models import CampaignModel
-            campaign = CampaignModel.create_with_center(
-                campaign_id=campaign_id,
-                name=name,
-                advertisement_ids=advertisement_ids,
-                priority=priority,
-                target_groups=target_groups,
-                center_longitude=center_longitude,
-                center_latitude=center_latitude,
-                radius_meters=radius_meters
-            )
+            if geo_scope == 'all':
+                campaign = CampaignModel.create_global(
+                    campaign_id, name, advertisement_ids, priority, target_groups
+                )
+            else:
+                campaign = CampaignModel.create_with_center(
+                    campaign_id=campaign_id,
+                    name=name,
+                    advertisement_ids=advertisement_ids,
+                    priority=priority,
+                    target_groups=target_groups,
+                    center_longitude=center_longitude,
+                    center_latitude=center_latitude,
+                    radius_meters=radius_meters
+                )
+                campaign['geo_scope'] = 'radius'
             
             db.campaigns.insert_one(campaign)
             
@@ -797,6 +956,79 @@ def init_admin_api(
                 "status": "error",
                 "message": "獲取活動詳情失敗"
             }), 500
+
+    @admin_api.route('/campaigns/<campaign_id>', methods=['PUT'])
+    def update_campaign(campaign_id):
+        """更新活動設定，活動 ID 保持不變。"""
+        existing = db.campaigns.find_one({"_id": campaign_id})
+        if not existing:
+            return jsonify({"status": "error", "message": f"活動 {campaign_id} 不存在"}), 404
+        data = request.get_json() or {}
+        name = str(data.get('name', existing.get('name', ''))).strip()
+        advertisement_ids = data.get(
+            'advertisement_ids',
+            existing.get('advertisement_ids') or [existing.get('advertisement_id')],
+        )
+        if not isinstance(advertisement_ids, list):
+            return jsonify({"status": "error", "message": "advertisement_ids 必須是陣列"}), 400
+        advertisement_ids = [ad_id for ad_id in advertisement_ids if ad_id]
+        if not name or not advertisement_ids:
+            return jsonify({"status": "error", "message": "名稱與至少一個廣告為必填"}), 400
+        for ad_id in advertisement_ids:
+            if not db.advertisements.find_one({"_id": ad_id}):
+                return jsonify({"status": "error", "message": f"廣告 {ad_id} 不存在"}), 404
+        try:
+            target_groups = normalize_group_ids(data.get('target_groups', existing.get('target_groups', [])))
+            validate_group_ids(target_groups)
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+
+        geo_scope = data.get('geo_scope', existing.get('geo_scope', 'radius'))
+        try:
+            priority = int(data.get('priority', existing.get('priority', 5)))
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "優先級必須是整數"}), 400
+        if not 1 <= priority <= 10:
+            return jsonify({"status": "error", "message": "優先級必須介於 1 到 10"}), 400
+        status = data.get('status', existing.get('status', 'active'))
+        if geo_scope not in ('all', 'radius') or status not in ('active', 'inactive'):
+            return jsonify({"status": "error", "message": "活動範圍或狀態無效"}), 400
+
+        if geo_scope == 'all':
+            rebuilt = CampaignModel.create_global(
+                campaign_id, name, advertisement_ids, priority, target_groups
+            )
+        else:
+            center = data.get('center_location') or existing.get('center_location') or {}
+            coordinates = center.get('coordinates', []) if isinstance(center, dict) else []
+            longitude = center.get('longitude') if isinstance(center, dict) else None
+            latitude = center.get('latitude') if isinstance(center, dict) else None
+            if longitude is None and len(coordinates) >= 2:
+                longitude, latitude = coordinates[:2]
+            radius = data.get('radius_meters', existing.get('radius_meters', 500))
+            if longitude is None or latitude is None:
+                return jsonify({"status": "error", "message": "指定區域需要中心經緯度"}), 400
+            if not (-180 <= longitude <= 180) or not (-90 <= latitude <= 90):
+                return jsonify({"status": "error", "message": "經緯度範圍無效"}), 400
+            if not 10 <= radius <= 10000:
+                return jsonify({"status": "error", "message": "範圍半徑必須介於 10 到 10000 公尺"}), 400
+            rebuilt = CampaignModel.create_with_center(
+                campaign_id, name, advertisement_ids, priority, target_groups,
+                longitude, latitude, radius,
+            )
+            rebuilt['geo_scope'] = 'radius'
+
+        update_data = {key: value for key, value in rebuilt.items() if key not in ('_id', 'created_at')}
+        update_data['status'] = status
+        update_data['updated_at'] = datetime.now().isoformat()
+        unset_data = {}
+        if geo_scope == 'all':
+            unset_data = {"geo_fence": "", "center_location": "", "radius_meters": ""}
+        update = {"$set": update_data}
+        if unset_data:
+            update["$unset"] = unset_data
+        db.campaigns.update_one({"_id": campaign_id}, update)
+        return jsonify({"status": "success", "message": "活動已更新"}), 200
     
     
     @admin_api.route('/campaigns/<campaign_id>', methods=['DELETE'])
@@ -891,7 +1123,11 @@ def init_admin_api(
             
             device_id = data.get('device_id')
             device_type = data.get('device_type', 'rooftop_display')
-            groups = data.get('groups', ['general'])
+            try:
+                groups = normalize_group_ids(data.get('groups', []))
+                validate_group_ids(groups)
+            except ValueError as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
             
             if not device_id:
                 return jsonify({
@@ -1017,13 +1253,6 @@ def init_admin_api(
                 upload_date=datetime.now().isoformat()
             )
             
-            # 添加其他欄位
-            advertisement.update({
-                "type": data.get('type', 'general'),
-                "priority": data.get('priority', 5),
-                "target_groups": data.get('target_groups', ['general'])
-            })
-            
             # 如果有觸發位置，添加到廣告
             if trigger_location:
                 longitude = trigger_location.get('longitude')
@@ -1069,8 +1298,8 @@ def init_admin_api(
                     "_id": campaign_id,
                     "name": f"自動活動 - {name}",
                     "advertisement_id": ad_id,
-                    "priority": advertisement['priority'],
-                    "target_groups": advertisement['target_groups'],
+                    "priority": 5,
+                    "target_groups": [],
                     "geo_fence": {
                         "type": "Polygon",
                         "coordinates": [points]
@@ -1133,12 +1362,6 @@ def init_admin_api(
                 update_data['name'] = data['name']
             if 'video_filename' in data:
                 update_data['video_filename'] = data['video_filename']
-            if 'type' in data:
-                update_data['type'] = data['type']
-            if 'priority' in data:
-                update_data['priority'] = data['priority']
-            if 'target_groups' in data:
-                update_data['target_groups'] = data['target_groups']
             if 'status' in data:
                 update_data['status'] = data['status']
             
@@ -2001,14 +2224,11 @@ def init_admin_api(
                     "file_exists": file_exists,
                     "file_size": ad.get('file_size', 0),
                     "duration": ad.get('duration'),
-                    "type": ad.get('type', 'general'),
-                    "priority": ad.get('priority', 5),
                     "created_at": ad.get('created_at')
                 }
                 available_ads.append(ad_info)
             
-            # 按優先級和創建時間排序
-            available_ads.sort(key=lambda x: (-x.get('priority', 5), x.get('created_at', '')))
+            available_ads.sort(key=lambda x: (x.get('name', ''), x.get('created_at', '')))
             
             return jsonify({
                 "status": "success",
@@ -2063,7 +2283,10 @@ def init_admin_api(
                     "message": "請求體不能為空"
                 }), 400
             
-            target_device_ids = data.get('target_device_ids', [])
+            try:
+                target_device_ids = resolve_target_device_ids(data)
+            except ValueError as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
             advertisement_id = data.get('advertisement_id')
             priority = data.get('priority', 'normal')
             download_mode = data.get('download_mode', 'chunked')
@@ -2221,7 +2444,10 @@ def init_admin_api(
                     "message": "請求體不能為空"
                 }), 400
             
-            target_device_ids = data.get('target_device_ids', [])
+            try:
+                target_device_ids = resolve_target_device_ids(data)
+            except ValueError as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
             advertisement_ids = data.get('advertisement_ids', [])
             priority = data.get('priority', 'normal')
             download_mode = data.get('download_mode', 'chunked')
@@ -2384,7 +2610,10 @@ def init_admin_api(
                     "message": "請求體不能為空"
                 }), 400
             
-            target_device_ids = data.get('target_device_ids', [])
+            try:
+                target_device_ids = resolve_target_device_ids(data)
+            except ValueError as exc:
+                return jsonify({"status": "error", "message": str(exc)}), 400
             advertisement_id = data.get('advertisement_id')
             
             # 驗證必要欄位

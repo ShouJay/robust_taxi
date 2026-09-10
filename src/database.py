@@ -27,6 +27,7 @@ class Database:
         self.devices = self.db["devices"]
         self.advertisements = self.db["advertisements"]
         self.campaigns = self.db["campaigns"]
+        self.groups = self.db["groups"]
         
         logger.info(f"成功連接到 MongoDB 數據庫: {database_name}")
     
@@ -124,4 +125,3 @@ class Database:
         """關閉數據庫連接"""
         self.client.close()
         logger.info("數據庫連接已關閉")
-
