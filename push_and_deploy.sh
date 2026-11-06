@@ -16,7 +16,7 @@ set -euo pipefail
 # ============ 設定區（每個人改成自己的，勿 commit 回 repo）============
 REPO_DIR="/Users/jieming/Documents/GitHub/robust_taxi"   # 你的 robust_taxi 本機 clone 路徑
 SSH_KEY="$HOME/.ssh/taxi_vm"           # 你連 VM 用的「私鑰」（換成你自己的）
-VM_IP="13.70.26.4"                  # 向管理者索取，例如 20.1.2.3
+VM_IP="20.205.136.53"              # 向管理者索取，例如 20.1.2.3
 BRANCH="Gary"
 ADMIN_USER="azureuser"
 # ====================================================================
@@ -49,4 +49,4 @@ ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
 
 echo ""
 echo "✅ 全部完成：改動已上 GitHub 並部署到 VM。"
-echo "   健康檢查： http://$VM_IP:8080/health"
+echo "   健康檢查： http://$VM_IP/health"
